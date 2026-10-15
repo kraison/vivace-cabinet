@@ -15,8 +15,9 @@
         :value-serializer 'test-serialize
         :value-deserializer 'test-deserialize))
 
-(defun make-integer-bplus-tree (heap)
-  (apply #'make-bplus-tree :heap heap (integer-bplus-tree-args)))
+(defun make-integer-bplus-tree (heap &key (page-size 4096))
+  (apply #'make-bplus-tree :heap heap :page-size page-size
+         (integer-bplus-tree-args)))
 
 (defun tree-value (tree key)
   "KEY's value in TREE, or NIL."
@@ -46,25 +47,32 @@
   "A full cursor yields every key in order; a range cursor is inclusive."
   (with-temp-memory (heap)
     (let ((tree (make-integer-bplus-tree heap))
-          (keys (remove-duplicates
-                 (loop repeat 5000 collect (random 100000)))))
+          ;; Both bounds are keys, and 101 (a range start below) is not.
+          (keys (adjoin 100 (adjoin 20000 (remove 101 (remove-duplicates
+                 (loop repeat 5000 collect (random 100000))))))))
       (dolist (k keys)
         (add-to-skip-list tree k "x"))
       (let ((sorted (sort (copy-list keys) #'<)))
-        (is (equal sorted (cursor-keys (make-cursor tree))))
-        (is (equal (remove-if-not (lambda (k) (<= 100 k 20000)) sorted)
-                   (cursor-keys (make-range-cursor tree 100 20000))))))))
+        (flet ((within (lo hi)
+                 (remove-if-not (lambda (k) (<= lo k hi)) sorted)))
+          (is (equal sorted (cursor-keys (make-cursor tree))))
+          (is (equal (within 100 20000)
+                     (cursor-keys (make-range-cursor tree 100 20000))))
+          (is (equal (within 101 20000)
+                     (cursor-keys (make-range-cursor tree 101 20000)))))))))
 
 (test bplus-remove-half-then-all
   "Removing half the keys, then the rest, merges pages and collapses the
 root; the tree stays correct and usable throughout."
   (with-temp-memory (heap)
-    (let* ((tree (make-integer-bplus-tree heap))
+    ;; Small pages, so internal nodes split and merge too.
+    (let* ((tree (make-integer-bplus-tree heap :page-size 256))
            (keys (alexandria:shuffle (loop for i below 20000 collect i)))
            (gone (remove-if-not #'evenp keys))
            (kept (sort (copy-list (remove-if #'evenp keys)) #'<)))
       (dolist (k keys)
         (add-to-skip-list tree k (format nil "v~a" k)))
+      (is (< 2 (%bpt-height tree)))
       (dolist (k gone)
         (is-true (remove-from-skip-list tree k)))
       (is (= 10000 (bplus-tree-count tree)))
@@ -74,6 +82,7 @@ root; the tree stays correct and usable throughout."
       (dolist (k kept)
         (remove-from-skip-list tree k))
       (is (= 0 (bplus-tree-count tree)))
+      (is (= 1 (%bpt-height tree)))
       (is (null (cursor-keys (make-cursor tree))))
       (is-true (add-to-skip-list tree 1 "again"))
       (is (equal "again" (tree-value tree 1))))))

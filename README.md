@@ -15,6 +15,15 @@ The Kyoto-style API (`open-db`, `db-set`, `db-get`, ...) comes next.
 - **Address space.** Each mapped file reserves 8 times its size, at least
   1 GiB, of virtual address space: about 17 GiB per linear hash and 1 GiB
   per heap. Limits on address space (`ulimit -v`) count these.
+- **Growth stops at the reservation.** A heap created at 64 MiB cannot grow
+  past 1 GiB until it is reopened (each linear-hash file stops at 8000 MiB),
+  and the error names vivace-graph's `GRAPH-DB` package. Bind
+  `vivace-cabinet::*mmap-reservation-multiplier*` or
+  `vivace-cabinet::*mmap-min-reservation*` before creating or opening to
+  reserve more.
+- **B+ tree entries of mixed sizes.** The B+ tree splits a full page by
+  entry count, not bytes, so a page of small entries can fail to take a
+  large one (issue #4); to be fixed before TreeDB uses it.
 - **Locations are directories ending in `/`.** The linear hash builds file
   names both ways; a location without the slash scatters its files.
 - **Tested on SBCL only.** The copied code keeps its CCL, ECL and LispWorks
