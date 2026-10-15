@@ -28,3 +28,21 @@ it and remove the directory."
                     (namestring (merge-pathnames "heap.dat" ,dir)) ,size)))
          (unwind-protect (progn ,@body)
            (ignore-errors (close-memory ,var)))))))
+
+(defun gen-id ()
+  "A random 16-byte key whose first byte is non-zero: all-zero keys mark
+empty slots in the linear hash.  (vivace-graph used a v4 UUID.)"
+  (let ((id (make-array 16 :element-type '(unsigned-byte 8))))
+    (dotimes (i 16)
+      (setf (aref id i) (random 256)))
+    (setf (aref id 0) (1+ (random 255)))
+    id))
+
+(defmacro with-temp-lhash ((var &rest make-args) &body body)
+  "Bind VAR to a fresh LHASH in a temp directory, run BODY, then close it
+and remove the directory.  MAKE-ARGS go to MAKE-LHASH."
+  (let ((dir (gensym "DIR")))
+    `(with-temp-directory (,dir)
+       (let ((,var (make-lhash :location ,dir ,@make-args)))
+         (unwind-protect (progn ,@body)
+           (ignore-errors (close-lhash ,var)))))))

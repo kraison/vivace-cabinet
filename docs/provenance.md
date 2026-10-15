@@ -17,7 +17,11 @@ names its source in its first line. vivace-graph itself is not changed.
 | substrate/mmap.lisp | mmap.lisp | mapped files, byte access, uint64 and pointer codecs; not the segment machinery |
 | substrate/buffers.lisp | (new) | stand-ins for buffer-pool.lisp's `get-buffer` and `get-skip-node-buffer` |
 | substrate/allocator.lisp | allocator.lisp | all but `test-allocator` |
+| structures/hash-key.lisp | primitive-node.lisp | the 16-byte `%hash` method, plus an explicit `defgeneric` |
+| structures/linear-hash.lisp | linear-hash.lisp | whole file |
+| structures/cl-store-ecl.lisp | cl-store-ecl.lisp | whole file (ECL only) |
 | tests/allocator-tests.lisp | tests/allocator-tests.lisp | adapted: package and suite names |
+| tests/linear-hash-tests.lisp | tests/linear-hash-tests.lisp | adapted: package and suite names; `reopen-preserves-contents` closes its second handle |
 | tests/support.lisp | tests/suite.lisp | fixtures, adapted |
 
 Trimmed as graph-specific or unused: vivace-graph's `serialize.lisp`,

@@ -18,7 +18,12 @@ from vivace-graph's on-disk structures."
                              #+(or sbcl lispworks ecl) (:file "rw-lock")
                              (:file "mmap")
                              (:file "buffers")
-                             (:file "allocator"))))
+                             (:file "allocator")))
+               (:module "structures"
+                :serial t
+                :components (#+ecl (:file "cl-store-ecl")
+                             (:file "hash-key")
+                             (:file "linear-hash"))))
   :in-order-to ((test-op (test-op "vivace-cabinet/test"))))
 
 (defsystem "vivace-cabinet/test"
@@ -28,7 +33,8 @@ from vivace-graph's on-disk structures."
   :serial t
   :components ((:file "package")
                (:file "support")
-               (:file "allocator-tests"))
+               (:file "allocator-tests")
+               (:file "linear-hash-tests"))
   :perform (test-op (o c)
              (unless (uiop:symbol-call
                       :fiveam :run!
