@@ -46,3 +46,42 @@ and remove the directory.  MAKE-ARGS go to MAKE-LHASH."
        (let ((,var (make-lhash :location ,dir ,@make-args)))
          (unwind-protect (progn ,@body)
            (ignore-errors (close-lhash ,var)))))))
+
+(defun test-serialize (object)
+  "OBJECT's printed form as UTF-8 after a 4-byte length.  A stand-in for
+vivace-graph's serializer, which is not copied."
+  (let* ((text (babel:string-to-octets (prin1-to-string object)
+                                       :encoding :utf-8))
+         (n (length text))
+         (out (make-array (+ 4 n) :element-type '(unsigned-byte 8))))
+    (setf (aref out 0) (ldb (byte 8 24) n)
+          (aref out 1) (ldb (byte 8 16) n)
+          (aref out 2) (ldb (byte 8 8) n)
+          (aref out 3) (ldb (byte 8 0) n))
+    (replace out text :start1 4)
+    out))
+
+(defun test-deserialize (octets)
+  "The object TEST-SERIALIZE wrote at the start of OCTETS, and the number
+of bytes it used."
+  (let ((n (logior (ash (aref octets 0) 24) (ash (aref octets 1) 16)
+                   (ash (aref octets 2) 8) (aref octets 3))))
+    (values (let ((*read-eval* nil))
+              (read-from-string
+               (babel:octets-to-string octets :start 4 :end (+ 4 n)
+                                              :encoding :utf-8)))
+            (+ 4 n))))
+
+(defun make-integer-skip-list (heap &key duplicates-allowed-p)
+  "An integer-keyed skip list over HEAP, keys and values encoded by
+TEST-SERIALIZE (vivace-graph used its general serializer here)."
+  (make-skip-list :heap heap
+                  :head-key most-negative-fixnum :head-value 0
+                  :tail-key most-positive-fixnum :tail-value 0
+                  :key-equal '= :key-comparison '<
+                  :key-serializer 'test-serialize
+                  :key-deserializer 'test-deserialize
+                  :value-serializer 'test-serialize
+                  :value-deserializer 'test-deserialize
+                  :value-equal 'equal
+                  :duplicates-allowed-p duplicates-allowed-p))

@@ -23,7 +23,10 @@ from vivace-graph's on-disk structures."
                 :serial t
                 :components (#+ecl (:file "cl-store-ecl")
                              (:file "hash-key")
-                             (:file "linear-hash"))))
+                             (:file "linear-hash")
+                             (:file "cursors")
+                             (:file "skip-list")
+                             (:file "skip-list-cursors"))))
   :in-order-to ((test-op (test-op "vivace-cabinet/test"))))
 
 (defsystem "vivace-cabinet/test"
@@ -34,7 +37,8 @@ from vivace-graph's on-disk structures."
   :components ((:file "package")
                (:file "support")
                (:file "allocator-tests")
-               (:file "linear-hash-tests"))
+               (:file "linear-hash-tests")
+               (:file "skip-list-tests"))
   :perform (test-op (o c)
              (unless (uiop:symbol-call
                       :fiveam :run!

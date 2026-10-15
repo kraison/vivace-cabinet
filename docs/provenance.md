@@ -20,8 +20,12 @@ names its source in its first line. vivace-graph itself is not changed.
 | structures/hash-key.lisp | primitive-node.lisp | the 16-byte `%hash` method, plus an explicit `defgeneric` |
 | structures/linear-hash.lisp | linear-hash.lisp | whole file |
 | structures/cl-store-ecl.lisp | cl-store-ecl.lisp | whole file (ECL only) |
+| structures/cursors.lisp | cursors.lisp | whole file |
+| structures/skip-list.lisp | skip-list.lisp | all but the development and benchmark functions |
+| structures/skip-list-cursors.lisp | skip-list-cursors.lisp | whole file |
 | tests/allocator-tests.lisp | tests/allocator-tests.lisp | adapted: package and suite names |
 | tests/linear-hash-tests.lisp | tests/linear-hash-tests.lisp | adapted: package and suite names; `reopen-preserves-contents` closes its second handle |
+| tests/skip-list-tests.lisp | tests/skip-list-tests.lisp | adapted: package and suite names; `list-comparators-are-a-strict-total-order` dropped (tests code not copied); keys and values use a test codec |
 | tests/support.lisp | tests/suite.lisp | fixtures, adapted |
 
 Trimmed as graph-specific or unused: vivace-graph's `serialize.lisp`,
