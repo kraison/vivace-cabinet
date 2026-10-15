@@ -26,7 +26,8 @@ from vivace-graph's on-disk structures."
                              (:file "linear-hash")
                              (:file "cursors")
                              (:file "skip-list")
-                             (:file "skip-list-cursors"))))
+                             (:file "skip-list-cursors")
+                             (:file "bplus-tree"))))
   :in-order-to ((test-op (test-op "vivace-cabinet/test"))))
 
 (defsystem "vivace-cabinet/test"
@@ -38,7 +39,8 @@ from vivace-graph's on-disk structures."
                (:file "support")
                (:file "allocator-tests")
                (:file "linear-hash-tests")
-               (:file "skip-list-tests"))
+               (:file "skip-list-tests")
+               (:file "bplus-tree-tests"))
   :perform (test-op (o c)
              (unless (uiop:symbol-call
                       :fiveam :run!
