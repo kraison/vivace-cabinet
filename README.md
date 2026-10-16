@@ -8,8 +8,8 @@ The design is in `docs/superpowers/specs/2026-10-16-vivace-cabinet-design.md`.
 **Status:** HashDB and TreeDB work (units 2b and 2c): `open-db`,
 `db-set`, `db-get`, `db-add`, `db-replace`, `db-append`, `db-check`,
 `db-seize`, `db-remove`, `db-count`, `db-size`, `db-path`, `db-clear`,
-`db-synchronize`, `db-error`, `close-db`, `with-db`. Cursors and the rest
-of Kyoto's API follow.
+`db-synchronize`, `db-error`, `close-db`, `with-db`, and cursors. The
+rest of Kyoto's API follows.
 
 ## Use
 
@@ -54,6 +54,24 @@ NIL, and `(db-error db)` says why: `:duplicate-record`, `:no-record` or
 value's size; `db-size` returns the bytes in use, not file sizes (the
 index files are sparse).
 
+## Cursors
+
+    (vivace-cabinet:with-cursor (cur db)
+      (when (vivace-cabinet:cursor-jump cur)
+        (loop do (print (vivace-cabinet:cursor-get-key cur :as :string))
+              while (vivace-cabinet:cursor-step cur))))
+
+`cursor-jump` moves to the first record, or on a TreeDB to the first at
+or after a key; `cursor-jump-back` to the last, or the last at or before
+a key; `cursor-step` and `cursor-step-back` move one record.
+`cursor-get` returns the current key and value (`cursor-get-key` and
+`cursor-get-value` one of them), `cursor-set-value` replaces the value,
+and `cursor-remove` and `cursor-seize` remove the record and move to the
+next. A move past either end returns NIL with `:no-record`. A TreeDB
+cursor holds its position as a key, so other threads' changes leave it
+valid; if its record is removed, it reads the next one. Give each thread
+its own cursor.
+
 ## Limits
 
 - **No crash safety.** Writes go straight to shared memory maps and reach
@@ -80,6 +98,9 @@ index files are sparse).
 - **The skip list frees removed records at close.** On the skip-list
   engine, removing or replacing a record unlinks it at once but frees
   its space only at `close-db`.
+- **Skip-list cursors can miss a key being replaced.** The skip-list
+  engine replaces a value by removing and re-adding its record, so a
+  cursor passing that key at that moment does not see it.
 - **Readers need write permission.** Files are mapped read-write even
   for `:reader`, so a reader that may not write them gets `open-error`.
 - **Appending copies the value.** `db-append` writes a new record each

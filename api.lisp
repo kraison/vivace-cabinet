@@ -78,6 +78,41 @@ OPEN-HASH-DB and OPEN-TREE-DB."
         (:hash (apply #'open-hash-db dir args))
         (:tree (apply #'open-tree-db dir args))))))
 
+(defgeneric db-cursor (db)
+  (:documentation "A new cursor on DB, on no record yet."))
+(defgeneric cursor-jump (cursor &optional key)
+  (:documentation "Move to the first record, or to KEY's (on a TreeDB,
+the first at or after KEY).  T, or NIL with :NO-RECORD."))
+(defgeneric cursor-jump-back (cursor &optional key)
+  (:documentation "Move to the last record, or the last at or before
+KEY.  T, or NIL with :NO-RECORD."))
+(defgeneric cursor-step (cursor)
+  (:documentation "Move to the next record.  T, or NIL with :NO-RECORD
+past the end."))
+(defgeneric cursor-step-back (cursor)
+  (:documentation "Move to the previous record.  T, or NIL with
+:NO-RECORD before the start."))
+(defgeneric cursor-get (cursor &key as)
+  (:documentation "The current record's key and value, or NIL with
+:NO-RECORD."))
+(defgeneric cursor-set-value (cursor value))
+(defgeneric cursor-remove (cursor)
+  (:documentation "Remove the current record and move to the next."))
+(defgeneric cursor-seize (cursor &key as)
+  (:documentation "Remove the current record, move to the next and return
+the removed key and value."))
+
+(defun cursor-get-key (cursor &key (as :octets))
+  (values (cursor-get cursor :as as)))
+
+(defun cursor-get-value (cursor &key (as :octets))
+  (nth-value 1 (cursor-get cursor :as as)))
+
+(defmacro with-cursor ((var db) &body body)
+  "Evaluate BODY with VAR bound to a new cursor on DB."
+  `(let ((,var (db-cursor ,db)))
+     ,@body))
+
 (defmacro with-db ((var path &rest open-args) &body body)
   "Evaluate BODY with VAR bound to the open database at PATH; close it
 afterwards."

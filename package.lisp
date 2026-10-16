@@ -17,4 +17,8 @@
            #:db-set #:db-add #:db-replace #:db-append #:db-get #:db-check
            #:db-seize #:db-remove #:db-count #:db-size #:db-path
            #:db-clear #:db-synchronize #:db-error
-           #:key-too-long #:octets<))
+           #:key-too-long #:octets<
+           #:db-cursor #:with-cursor #:cursor-jump #:cursor-jump-back
+           #:cursor-step #:cursor-step-back #:cursor-get #:cursor-get-key
+           #:cursor-get-value #:cursor-set-value #:cursor-remove
+           #:cursor-seize))

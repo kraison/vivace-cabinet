@@ -138,3 +138,19 @@ TEST-SERIALIZE (vivace-graph used its general serializer here)."
 (defmacro def-db-test (name &body body)
   "Define NAME/<kind> in API-SUITE for every kind in *DB-KINDS*."
   `(progn ,@(db-test-forms name body *db-kinds*)))
+
+(defmacro def-tree-test (name &body body)
+  "Define NAME/<kind> in API-SUITE for each TreeDB kind in *DB-KINDS*."
+  `(progn ,@(db-test-forms name body
+                           (remove :hash *db-kinds*
+                                   :key (lambda (k) (getf (rest k) :type))))))
+
+(defun keyed (i)
+  "The I-th test key, zero-padded so string order is numeric order."
+  (format nil "k~5,'0d" i))
+
+(defun cursor-walk (cursor step)
+  "The keys, as strings, from CURSOR's record on, moving with STEP."
+  (loop while (cursor-get-key cursor)
+        collect (cursor-get-key cursor :as :string)
+        while (funcall step cursor)))
