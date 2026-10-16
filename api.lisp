@@ -65,7 +65,7 @@ cannot be read (opening then reports that)."
   "Open the database in directory PATH (a trailing / is added).  An
 existing database opens as the type it is; TYPE (:HASH by default)
 chooses what to create, and must match when given.  Other keywords:
-OPEN-HASH-DB."
+OPEN-HASH-DB and OPEN-TREE-DB."
   (when (and type-p (not (member type '(:hash :tree))))
     (%signal 'invalid-argument "unknown database type ~s" type))
   (let* ((dir (uiop:ensure-directory-pathname (merge-pathnames path)))
@@ -76,8 +76,7 @@ OPEN-HASH-DB."
     (let ((args (alexandria:remove-from-plist args :type)))
       (ecase (or found type :hash)
         (:hash (apply #'open-hash-db dir args))
-        (:tree (%signal 'not-implemented
-                       "TreeDB is not built yet"))))))
+        (:tree (apply #'open-tree-db dir args))))))
 
 (defmacro with-db ((var path &rest open-args) &body body)
   "Evaluate BODY with VAR bound to the open database at PATH; close it

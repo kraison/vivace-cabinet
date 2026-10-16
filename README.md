@@ -5,11 +5,11 @@ A Kyoto Cabinet-style key-value store in Common Lisp, built from
 structures: a memory-mapped heap, a linear hash, a skip list and a B+ tree.
 The design is in `docs/superpowers/specs/2026-10-16-vivace-cabinet-design.md`.
 
-**Status:** HashDB works (unit 2b): `open-db`, `db-set`, `db-get`,
-`db-add`, `db-replace`, `db-append`, `db-check`, `db-seize`, `db-remove`,
-`db-count`, `db-size`, `db-path`, `db-clear`, `db-synchronize`,
-`db-error`, `close-db`, `with-db`. TreeDB, cursors and the rest of Kyoto's
-API follow.
+**Status:** HashDB and TreeDB work (units 2b and 2c): `open-db`,
+`db-set`, `db-get`, `db-add`, `db-replace`, `db-append`, `db-check`,
+`db-seize`, `db-remove`, `db-count`, `db-size`, `db-path`, `db-clear`,
+`db-synchronize`, `db-error`, `close-db`, `with-db`. Cursors and the rest
+of Kyoto's API follow.
 
 ## Use
 
@@ -32,6 +32,19 @@ and `:heap-reservation` (default 64 GiB of address space the heap may
 grow into in one session). A writer's `:truncate` empties the database,
 or discards one left incomplete by a crash while creating; opening an
 incomplete database otherwise signals `open-error`.
+
+A TreeDB keeps its records in key order:
+
+    (vivace-cabinet:with-db (db "/var/data/words.vct" :type :tree)
+      (vivace-cabinet:db-set db "pear" "green")
+      (vivace-cabinet:db-set db "apple" "red"))
+
+`:type :tree` chooses TreeDB when creating; an existing database opens as
+whatever it is, and a `:type` or `:engine` that does not match it signals
+`open-error`. TreeDB takes `:engine` (`:bplus-tree`, the default, or
+`:skip-list`), `:page-size` (B+ tree pages of 1024 to 32768 bytes, 4096
+by default), `:comparator` (a strict less-than on octet vectors; the
+default, `octets<`, is unsigned byte order) and the heap keywords.
 
 As in Kyoto Cabinet, an operation that fails for an ordinary reason (adding
 a key that exists, removing one that doesn't, writing to a reader) returns
@@ -59,6 +72,14 @@ index files are sparse).
   `vivace-cabinet::*mmap-reservation-multiplier*` or
   `vivace-cabinet::*mmap-min-reservation*` before creating or opening to
   reserve more.
+- **B+ tree keys.** A key longer than a quarter page (1024 bytes at the
+  default page size) signals `key-too-long`. A value goes in a heap
+  record outside the page when it and its key exceed a quarter page.
+- **Comparators are not stored.** Open a TreeDB with the same
+  `:comparator` every time; another order misplaces records silently.
+- **The skip list frees removed records at close.** On the skip-list
+  engine, removing or replacing a record unlinks it at once but frees
+  its space only at `close-db`.
 - **Readers need write permission.** Files are mapped read-write even
   for `:reader`, so a reader that may not write them gets `open-error`.
 - **Appending copies the value.** `db-append` writes a new record each

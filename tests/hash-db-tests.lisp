@@ -12,7 +12,7 @@
     (declare (ignore key))
     (make-array 16 :element-type '(unsigned-byte 8) :initial-element byte)))
 
-(test set-and-get
+(def-db-test set-and-get
   (with-temp-db (db)
     (is-true (db-set db "k" "v"))
     (is (equal "v" (db-get db "k" :as :string)))
@@ -23,7 +23,7 @@
     (is (equal "w" (db-get db "k" :as :string)))
     (is (= 2 (db-count db)))))
 
-(test missing-keys-give-nil-and-no-record
+(def-db-test missing-keys-give-nil-and-no-record
   (with-temp-db (db)
     (is (null (db-get db "absent")))
     (is (eq :no-record (db-error db)))
@@ -31,7 +31,7 @@
     (is (null (db-remove db "absent")))
     (is (eq :no-record (db-error db)))))
 
-(test add-replace-append
+(def-db-test add-replace-append
   (with-temp-db (db)
     (is-true (db-add db "a" "1"))
     (is (null (db-add db "a" "2")))
@@ -47,7 +47,7 @@
     (is (equal "5" (db-get db "c" :as :string)))
     (is (= 2 (db-count db)))))
 
-(test check-seize-remove
+(def-db-test check-seize-remove
   (with-temp-db (db)
     (db-set db "k" "value")
     (is (= 5 (db-check db "k")))
@@ -59,7 +59,7 @@
     (is (null (db-get db "j")))
     (is (= 0 (db-count db)))))
 
-(test values-change-size
+(def-db-test values-change-size
   "Replacing and appending with larger and smaller values."
   (with-temp-db (db)
     (db-set db "k" "x")
@@ -71,7 +71,7 @@
       (db-append db "k" "ab"))
     (is (= 201 (db-check db "k")))))
 
-(test empty-keys-and-values
+(def-db-test empty-keys-and-values
   (with-temp-db (db)
     (is-true (db-set db "" "v"))
     (is-true (db-set db "e" ""))
@@ -79,7 +79,7 @@
     (is (equal "" (db-get db "e" :as :string)))
     (is (= 0 (db-check db "e")))))
 
-(test large-values
+(def-db-test large-values
   (with-temp-db (db)
     (let ((v (make-array (expt 2 20) :element-type '(unsigned-byte 8))))
       (dotimes (i (length v))
@@ -87,7 +87,7 @@
       (is-true (db-set db "big" v))
       (is (equalp v (db-get db "big"))))))
 
-(test non-ascii-strings
+(def-db-test non-ascii-strings
   (with-temp-db (db)
     (db-set db "clé" "naïve 日本")
     (is (equal "naïve 日本" (db-get db "clé" :as :string)))))
@@ -120,7 +120,7 @@ operation works at the chain's head, middle and tail."
       (is-true (db-set db "z" "v"))
       (is (equal "v" (db-get db "z" :as :string))))))
 
-(test errors-are-per-thread
+(def-db-test errors-are-per-thread
   (with-temp-db (db)
     (db-get db "absent")
     (let ((other nil))
@@ -129,45 +129,45 @@ operation works at the chain's head, middle and tail."
       (is (eq :success other))
       (is (eq :no-record (db-error db))))))
 
-(test bad-arguments-signal
+(def-db-test bad-arguments-signal
   (with-temp-db (db)
     (signals invalid-argument (db-set db 42 "v"))
     (signals invalid-argument (db-get db "absent" :as :symbol))))
 
-(test reopen-keeps-everything
+(def-db-test reopen-keeps-everything
   (with-temp-directory (dir)
     (let ((path (merge-pathnames "r.vch/" dir)))
-      (with-db (db path)
+      (with-test-db (db path)
         (dotimes (i 1000)
           (db-set db (format nil "k~a" i) (format nil "v~a" i))))
-      (with-db (db path)
+      (with-test-db (db path)
         (is (= 1000 (db-count db)))
         (is (equal "v777" (db-get db "k777" :as :string)))
         (is-true (db-remove db "k1"))
         (is (= 999 (db-count db)))))))
 
-(test corrupt-header-signals
+(def-db-test corrupt-header-signals
   (with-temp-directory (dir)
     (let ((path (merge-pathnames "c.vch/" dir)))
-      (with-db (db path) (db-set db "k" "v"))
+      (with-test-db (db path) (db-set db "k" "v"))
       (with-open-file (out (merge-pathnames "header.dat" path)
                            :direction :output :if-exists :supersede
                            :element-type '(unsigned-byte 8))
         (write-sequence (make-array 32 :element-type '(unsigned-byte 8)
                                        :initial-element 9)
                         out))
-      (signals open-error (open-db path)))))
+      (signals open-error (open-test-db path)))))
 
-(test closed-databases-refuse-use
+(def-db-test closed-databases-refuse-use
   (with-temp-directory (dir)
-    (let ((db (open-db (merge-pathnames "x.vch/" dir))))
+    (let ((db (open-test-db (merge-pathnames "x.vch/" dir))))
       (is-true (close-db db))
       (is (null (close-db db)))
       (signals invalid-argument (db-get db "k"))
       (signals invalid-argument (db-set db "k" "v"))
       (signals invalid-argument (db-count db)))))
 
-(test concurrent-writers-are-consistent
+(def-db-test concurrent-writers-are-consistent
   "Four threads write their own keys and race to add one shared key:
 every key lands once and exactly one add of the shared key wins."
   (with-temp-db (db)

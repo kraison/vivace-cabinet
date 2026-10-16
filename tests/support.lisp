@@ -95,6 +95,46 @@ TEST-SERIALIZE (vivace-graph used its general serializer here)."
   "Bind VAR to a new database in a temp directory; close it afterwards."
   (let ((dir (gensym "DIR")))
     `(with-temp-directory (,dir)
-       (let ((,var (open-db (merge-pathnames "t.vch/" ,dir) ,@open-args)))
+       (let ((,var (open-test-db (merge-pathnames "t.vch/" ,dir)
+                                 ,@open-args)))
          (unwind-protect (progn ,@body)
            (ignore-errors (close-db ,var)))))))
+
+(defvar *db-type-args* '(:type :hash)
+  "OPEN-DB arguments naming the database type a test runs on.")
+
+(defun open-test-db (path &rest args)
+  "OPEN-DB on PATH with ARGS and *DB-TYPE-ARGS*."
+  (apply #'open-db path (append args *db-type-args*)))
+
+(defmacro with-test-db ((var path &rest args) &body body)
+  "WITH-DB through OPEN-TEST-DB."
+  `(let ((,var (open-test-db ,path ,@args)))
+     (unwind-protect (progn ,@body)
+       (close-db ,var))))
+
+(def-suite api-suite
+  :description "The API on every database type and engine."
+  :in vivace-cabinet-suite)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defparameter *db-kinds*
+    '((hash :type :hash)
+      (bplus-tree :type :tree :engine :bplus-tree)
+      (skip-list :type :tree :engine :skip-list))
+    "Each kind of database an API test runs on: a name and OPEN-DB args.")
+
+  (defun db-test-forms (name body kinds)
+    "One test per kind in KINDS, named NAME/<kind>, in API-SUITE."
+    (let ((doc (and (stringp (first body)) (list (first body))))
+          (body (if (stringp (first body)) (rest body) body)))
+      (loop for (kind . args) in kinds
+            collect `(test (,(alexandria:symbolicate name "/" kind)
+                            :suite api-suite)
+                       ,@doc
+                       (let ((*db-type-args* ',args))
+                         ,@body))))))
+
+(defmacro def-db-test (name &body body)
+  "Define NAME/<kind> in API-SUITE for every kind in *DB-KINDS*."
+  `(progn ,@(db-test-forms name body *db-kinds*)))
