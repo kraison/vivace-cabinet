@@ -185,3 +185,63 @@ the record as it was."
         (engine-delete e (oct "k"))
         (engine-put e (oct "k") big)
         (is (= before (read-memory-pointer heap)))))))
+
+(defun big-key (i)
+  "A 250-byte key that sorts by I."
+  (let ((k (octets-of-length 250 7)))
+    (setf (aref k 0) (ldb (byte 8 8) i)
+          (aref k 1) (ldb (byte 8 0) i))
+    k))
+
+(test bplus-floor-past-empty-leaves
+  "Keys put in descending order, then removed from the top of 1024-byte
+pages, leave empty leaves that no merge absorbs; floor must still find
+the last record."
+  (with-temp-memory (heap)
+    (let ((e (make-bplus-engine heap :page-size 1024))
+          (bad nil))
+      (loop for i from 299 downto 0
+            do (engine-put e (big-key i) (oct "v")))
+      (loop for i from 299 downto 1
+            do (engine-delete e (big-key i))
+               (unless (and (equalp (big-key (1- i))
+                                    (engine-floor e nil nil))
+                            (equalp (big-key (1- i))
+                                    (engine-floor e (big-key i) nil)))
+                 (setf bad i)
+                 (return)))
+      (is (null bad) "floor wrong after removing ~a" bad))))
+
+(test bplus-floor-matches-a-model
+  "Runs of keys removed from 1024-byte pages: floor of every key, strict
+and not, agrees with a model of what is left."
+  (loop for seed from 1 to 5
+        do (with-temp-memory (heap)
+             (let* ((*random-state* (sb-ext:seed-random-state seed))
+                    (e (make-bplus-engine heap :page-size 1024))
+                    (n 300)
+                    (alive (make-array n :initial-element t))
+                    (bad nil))
+               (flet ((want (from)
+                        (loop for x from from downto 0
+                              when (aref alive x) return (big-key x))))
+                 (dolist (i (alexandria:shuffle
+                             (loop for i below n collect i)))
+                   (engine-put e (big-key i) (oct "v")))
+                 (loop repeat 20
+                       until bad
+                       do (let* ((lo (random n))
+                                 (hi (min n (+ lo 5 (random 40)))))
+                            (loop for i from lo below hi
+                                  do (engine-delete e (big-key i))
+                                     (setf (aref alive i) nil))
+                            (dotimes (j n)
+                              (unless (and (equalp (want j)
+                                                   (engine-floor
+                                                    e (big-key j) nil))
+                                           (equalp (want (1- j))
+                                                   (engine-floor
+                                                    e (big-key j) t)))
+                                (setf bad (list seed j))
+                                (return))))))
+               (is (null bad) "floor wrong at ~a" bad)))))

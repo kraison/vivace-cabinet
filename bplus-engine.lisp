@@ -96,52 +96,65 @@ end."
     (when (< idx count)
       (%bpt-entry-at buf idx))))
 
-(defun %bpt-rightmost-leaf (tree addr)
-  "The last leaf under the page at ADDR."
-  (let ((buf nil))
-    (loop
-      (setf buf (%bpt-read-page tree addr buf))
-      (when (%bpt-leaf-p buf)
-        (return buf))
-      (let ((n (buf-u16 buf +bpt-p-count-offset+)))
-        (setf addr (if (zerop n)
-                       (buf-u64 buf +bpt-p-link-offset+)
-                       (%bpt-slot-child buf (1- n))))))))
+(defun %bpt-child (buf c)
+  "Child C of the internal page in BUF; C -1 is the leftmost, P0."
+  (if (< c 0)
+      (buf-u64 buf +bpt-p-link-offset+)
+      (%bpt-slot-child buf c)))
 
 (defun %bpt-last-entry (buf)
   (let ((n (buf-u16 buf +bpt-p-count-offset+)))
     (when (plusp n)
       (%bpt-entry-at buf (1- n)))))
 
+(defun %bpt-last-under (tree addr)
+  "The last entry under the page at ADDR, or NIL.  A merge that does not
+fit leaves a leaf empty, so this searches right to left past empty
+subtrees."
+  (let ((buf (%bpt-read-page tree addr)))
+    (if (%bpt-leaf-p buf)
+        (%bpt-last-entry buf)
+        (loop for c from (1- (buf-u16 buf +bpt-p-count-offset+)) downto -1
+              do (multiple-value-bind (k v)
+                     (%bpt-last-under tree (%bpt-child buf c))
+                   (when k
+                     (return (values k v))))))))
+
 (defun %bpt-floor (tree key strict)
   "The last leaf entry at or before KEY (before it when STRICT), or the
 last entry when KEY is NIL, as (values key value-bytes); NIL before the
-start.  Leaves link forward only, so the descent remembers the subtree
-just left of its path."
+start.  Leaves link forward only: when KEY's leaf has nothing before it,
+search the subtrees left of the descent's path, nearest first."
   (if (null key)
-      (%bpt-last-entry (%bpt-rightmost-leaf tree (%bpt-root tree)))
+      (%bpt-last-under tree (%bpt-root tree))
       (let ((addr (%bpt-root tree))
-            (buf nil)
-            (left nil))
+            (path '())
+            (buf nil))
         (loop
-          (setf buf (%bpt-read-page tree addr buf))
+          (setf buf (%bpt-read-page tree addr))
           (when (%bpt-leaf-p buf)
             (return))
-          (let ((idx (%bpt-page-bsearch tree buf
-                                        (buf-u16 buf +bpt-p-count-offset+)
-                                        key)))
-            (cond ((> idx 0) (setf left (%bpt-slot-child buf (1- idx))))
-                  ((= idx 0) (setf left (buf-u64 buf +bpt-p-link-offset+))))
-            (setf addr (if (< idx 0)
-                           (buf-u64 buf +bpt-p-link-offset+)
-                           (%bpt-slot-child buf idx)))))
+          (let ((c (%bpt-page-bsearch tree buf
+                                      (buf-u16 buf +bpt-p-count-offset+)
+                                      key)))
+            (push (cons addr c) path)
+            (setf addr (%bpt-child buf c))))
         (multiple-value-bind (idx exact)
             (%bpt-page-bsearch tree buf (buf-u16 buf +bpt-p-count-offset+)
                                key)
           (when (and exact strict)
             (decf idx))
-          (cond ((>= idx 0) (%bpt-entry-at buf idx))
-                (left (%bpt-last-entry (%bpt-rightmost-leaf tree left))))))))
+          (if (>= idx 0)
+              (%bpt-entry-at buf idx)
+              (loop for (paddr . c) in path
+                    do (let ((pbuf (%bpt-read-page tree paddr)))
+                         (loop for left from (1- c) downto -1
+                               do (multiple-value-bind (k v)
+                                      (%bpt-last-under
+                                       tree (%bpt-child pbuf left))
+                                    (when k
+                                      (return-from %bpt-floor
+                                        (values k v))))))))))))
 
 ;;; The engine protocol
 
