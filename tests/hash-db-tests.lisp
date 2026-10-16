@@ -212,3 +212,31 @@ reuses freed records instead of allocating one per size."
             do (db-set db "k" (make-string n :initial-element #\x)))
       (is (= 1099 (db-check db "k")))
       (is (< (- (db-size db) before) 50000)))))
+
+(test every-operation-at-every-chain-position
+  "Each operation on the head (e), middle (c) and tail (a) of a chain of
+five keys sharing one digest; the other keys survive."
+  (let ((*key-digest* (constant-digest 7))
+        (keys '("a" "b" "c" "d" "e")))
+    (dolist (target '("e" "c" "a"))
+      (dolist (op '(:set :replace :append :check :seize :remove))
+        (with-temp-db (db)
+          (dolist (k keys)
+            (db-set db k k))
+          (ecase op
+            (:set (is-true (db-set db target "new")))
+            (:replace (is-true (db-replace db target "new")))
+            (:append (is-true (db-append db target "+")))
+            (:check (is (= 1 (db-check db target))))
+            (:seize (is (equal target (db-seize db target :as :string))))
+            (:remove (is-true (db-remove db target))))
+          (is (equal (case op
+                       ((:set :replace) "new")
+                       (:append (concatenate 'string target "+"))
+                       (:check target))
+                     (db-get db target :as :string))
+              "~a on ~a" op target)
+          (dolist (k (remove target keys :test #'equal))
+            (is (equal k (db-get db k :as :string))
+                "~a on ~a lost ~a" op target k))
+          (is (= (if (member op '(:seize :remove)) 4 5) (db-count db))))))))
