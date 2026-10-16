@@ -26,13 +26,12 @@ advisory `flock` on the directory, which network filesystems may not
 honour).
 
 `open-db` takes `:mode`, a list of `:reader` or `:writer` plus any of
-`:create`, `:truncate`, `:autosync` (default `(:writer :create)`; a
-writer's `:truncate` empties the database, or discards one left
-incomplete by a crash while creating, which otherwise signals
-`open-error`), and
+`:create`, `:truncate`, `:autosync` (default `(:writer :create)`), and
 tuning keywords: `:buckets` and `:max-locks` for the index, `:heap-size`,
 and `:heap-reservation` (default 64 GiB of address space the heap may
-grow into in one session).
+grow into in one session). A writer's `:truncate` empties the database,
+or discards one left incomplete by a crash while creating; opening an
+incomplete database otherwise signals `open-error`.
 
 As in Kyoto Cabinet, an operation that fails for an ordinary reason (adding
 a key that exists, removing one that doesn't, writing to a reader) returns
