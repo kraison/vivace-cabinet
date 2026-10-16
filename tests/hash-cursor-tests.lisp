@@ -86,3 +86,49 @@ move on, until the database is empty."
       (is (eq :no-record (db-error db)))
       (is (null (cursor-get cur)))
       (is (null (cursor-step cur))))))
+
+(test hash-cursor-sees-records-others-leave-alone
+  "While another thread removes and re-adds other keys, a walk that no
+bucket split overlaps sees every untouched record once."
+  (with-temp-db (db :buckets 256)
+    (dotimes (i 2000)
+      (db-set db (format nil "s~4,'0d" i) "v"))
+    (dotimes (i 2000)
+      (db-set db (format nil "c~4,'0d" i) "v"))
+    (let* ((stop nil)
+           (bad 0)
+           (clean 0)
+           (churn (bt:make-thread
+                   (lambda ()
+                     (let ((*random-state* (sb-ext:seed-random-state 9)))
+                       (loop until stop
+                             do (let ((k (format nil "c~4,'0d"
+                                                 (random 2000))))
+                                  (db-remove db k)
+                                  (db-set db k "v"))))))))
+      (unwind-protect
+           (progn
+             ;; Churn splits overflowing buckets until none overflows;
+             ;; walk once the bucket count has held for 2 s.
+             (loop with steady = 0
+                   for tries below 60
+                   for before = (bucket-count (hash-db-index db))
+                   do (sleep 0.5)
+                      (if (= before (bucket-count (hash-db-index db)))
+                          (incf steady)
+                          (setf steady 0))
+                   until (>= steady 4))
+             (dotimes (walk 20)
+             (let ((before (bucket-count (hash-db-index db))))
+               (with-cursor (cur db)
+                 (cursor-jump cur)
+                 (let ((stable (count #\s (cursor-walk cur #'cursor-step)
+                                      :key (lambda (k) (char k 0)))))
+                   (when (= before (bucket-count (hash-db-index db)))
+                     (incf clean)
+                     (unless (= 2000 stable)
+                       (incf bad))))))))
+        (setf stop t)
+        (bt:join-thread churn))
+      (is (plusp clean))
+      (is (= 0 bad) "~a of ~a walks miscounted" bad clean))))

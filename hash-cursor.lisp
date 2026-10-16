@@ -22,9 +22,13 @@ is past the last one.  Each chain is read under its stripe."
          (past nil)
          (digests (with-read-lock ((%lhash-split-lock index))
                     (if (< bucket (%bucket-count index))
-                        (mapcar #'car
-                                (read-bucket index (%lhash-table index)
-                                             (bucket-offset index bucket)))
+                        ;; Under the bucket's lock: removing a key clears
+                        ;; the bucket and re-adds the rest.
+                        (with-locked-hash-bucket (index bucket)
+                          (mapcar #'car
+                                  (read-bucket index (%lhash-table index)
+                                               (bucket-offset index
+                                                              bucket))))
                         (setf past t)))))
     (values (unless past
               (loop for d in digests
