@@ -74,3 +74,22 @@ signal."
       (signals invalid-argument (open-db path :type :tree :page-size 100))
       (signals invalid-argument (open-db path :type :tree
                                               :page-size 65536)))))
+
+(test truncate-keeps-type-and-engine
+  "A writer's :TRUNCATE empties a database and keeps its type and engine,
+unless :TYPE or :ENGINE names others."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "t.vct/" dir)))
+      (with-db (db path :type :tree :engine :skip-list)
+        (db-set db "k" "v"))
+      (with-db (db path :mode '(:writer :truncate))
+        (is (typep db 'tree-db))
+        (is (typep (tree-db-engine db) 'skip-list-engine))
+        (is (= 0 (db-count db))))
+      (with-db (db path :mode '(:writer :truncate) :type :tree)
+        (is (typep (tree-db-engine db) 'skip-list-engine)))
+      (with-db (db path :mode '(:writer :truncate) :type :tree
+                        :engine :bplus-tree)
+        (is (typep (tree-db-engine db) 'bplus-engine)))
+      (with-db (db path :mode '(:writer :truncate) :type :hash)
+        (is (typep db 'hash-db))))))

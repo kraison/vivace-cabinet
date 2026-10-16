@@ -41,7 +41,8 @@ A TreeDB keeps its records in key order:
 
 `:type :tree` chooses TreeDB when creating; an existing database opens as
 whatever it is, and a `:type` or `:engine` that does not match it signals
-`open-error`. TreeDB takes `:engine` (`:bplus-tree`, the default, or
+`open-error`. A writer's `:truncate` keeps the type and engine unless
+`:type` or `:engine` names others. TreeDB takes `:engine` (`:bplus-tree`, the default, or
 `:skip-list`), `:page-size` (B+ tree pages of 1024 to 32768 bytes, 4096
 by default), `:comparator` (a strict less-than on octet vectors; the
 default, `octets<`, is unsigned byte order) and the heap keywords.

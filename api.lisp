@@ -53,28 +53,37 @@ returned NIL: :DUPLICATE-RECORD, :NO-RECORD or :NO-PERMISSION, or
       (babel:octets-to-string octets :encoding :utf-8)
       octets))
 
-(defun %existing-type (dir args)
-  "The type of the database in DIR, unless ARGS truncate it or its header
+(defun %existing-header (dir)
+  "The header of the database in DIR, or NIL when there is none or it
 cannot be read (opening then reports that)."
-  (let ((mode (getf args :mode)))
-    (unless (and (listp mode) (member :writer mode) (member :truncate mode))
-      (and (probe-file (%header-file dir))
-           (ignore-errors (getf (%read-header dir) :type))))))
+  (and (probe-file (%header-file dir))
+       (ignore-errors (%read-header dir))))
 
-(defun open-db (path &rest args &key (type nil type-p) &allow-other-keys)
+(defun open-db (path &rest args &key (type nil type-p) (engine nil engine-p)
+                                     mode &allow-other-keys)
   "Open the database in directory PATH (a trailing / is added).  An
 existing database opens as the type it is; TYPE (:HASH by default)
-chooses what to create, and must match when given.  Other keywords:
-OPEN-HASH-DB and OPEN-TREE-DB."
+chooses what to create, and must match when given.  A writer's :TRUNCATE
+keeps the type and engine unless TYPE or ENGINE names others.  Other
+keywords: OPEN-HASH-DB and OPEN-TREE-DB."
+  (declare (ignore engine))
   (when (and type-p (not (member type '(:hash :tree))))
     (%signal 'invalid-argument "unknown database type ~s" type))
   (let* ((dir (uiop:ensure-directory-pathname (merge-pathnames path)))
-         (found (%existing-type dir args)))
-    (when (and found type-p (not (eq found type)))
+         (header (%existing-header dir))
+         (found (getf header :type))
+         (truncating (and (listp mode) (member :writer mode)
+                          (member :truncate mode)))
+         (args (alexandria:remove-from-plist args :type)))
+    (when (and found type-p (not (eq found type)) (not truncating))
       (%signal 'open-error "~a: a ~(~a~) database, not ~(~a~)"
                dir found type))
-    (let ((args (alexandria:remove-from-plist args :type)))
-      (ecase (or found type :hash)
+    (let ((type (if (and truncating type-p) type (or found type :hash))))
+      (when (and truncating (eq type :tree) (eq found :tree)
+                 (not engine-p))
+        (setf args (list* :engine (%engine-kind (getf header :engine))
+                          args)))
+      (ecase type
         (:hash (apply #'open-hash-db dir args))
         (:tree (apply #'open-tree-db dir args))))))
 
