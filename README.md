@@ -60,6 +60,8 @@ index files are sparse).
   `vivace-cabinet::*mmap-reservation-multiplier*` or
   `vivace-cabinet::*mmap-min-reservation*` before creating or opening to
   reserve more.
+- **Readers need write permission.** Files are mapped read-write even
+  for `:reader`, so a reader that may not write them gets `open-error`.
 - **Appending copies the value.** `db-append` writes a new record each
   time, and the heap keeps freed records of the sizes a value passed
   through: a value grown 1000 bytes at a time to 300 KB leaves about
