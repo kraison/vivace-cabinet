@@ -36,7 +36,8 @@ collisions; a database must keep one digest function for life.")
            :reader hash-db-errors)
    (errors-lock :initform (make-lock "hash-db errors")
                 :reader hash-db-errors-lock)
-   (open-p :initform nil :accessor hash-db-open-p)))
+   (open-p :initform nil :accessor hash-db-open-p)
+   (lock-fd :initform nil :accessor hash-db-lock-fd)))
 
 ;;; Files
 
@@ -142,27 +143,47 @@ space the heap may grow into before it must be reopened."
                                           :max-locks max-locks
                                           :heap-size heap-size
                                           :heap-reservation
-                                          heap-reservation)))
-         (exists (probe-file (%header-file dir))))
-    (when (and exists writer (member :truncate mode))
-      (%delete-storage dir)
-      (setf exists nil))
-    (cond (exists (%open-storage db))
-          ((and writer (member :create mode)) (%create-storage db))
-          (t (%signal 'open-error
-                      "~a: no database here (open with :CREATE)" dir)))
+                                          heap-reservation))))
+    (unless (probe-file dir)
+      (unless (and writer (member :create mode))
+        (%signal 'open-error
+                 "~a: no database here (open with :CREATE)" dir))
+      (ensure-directories-exist dir))
+    (setf (hash-db-lock-fd db)
+          (or (lock-directory dir writer)
+              (%signal 'open-error "~a: open in another handle" dir)))
+    (let ((ok nil))
+      (unwind-protect
+           (let ((exists (probe-file (%header-file dir))))
+             (when (and exists writer (member :truncate mode))
+               (%delete-storage dir)
+               (setf exists nil))
+             (cond (exists (%open-storage db))
+                   ((and writer (member :create mode)) (%create-storage db))
+                   (t (%signal 'open-error
+                               "~a: no database here (open with :CREATE)"
+                               dir)))
+             (setf ok t))
+        (unless ok
+          (%unlock db))))
     (setf (hash-db-open-p db) t)
     db))
 
+(defun %unlock (db)
+  (when (hash-db-lock-fd db)
+    (unlock-directory (hash-db-lock-fd db))
+    (setf (hash-db-lock-fd db) nil)))
+
 (defmethod close-db ((db hash-db))
   (with-write-lock ((hash-db-lock db))
-    (when (hash-db-open-p db)
-      (when (hash-db-writable-p db)
-        (%write-header db))
-      (close-lhash (hash-db-index db))
-      (close-memory (hash-db-heap db))
-      (setf (hash-db-open-p db) nil)
-      t)))
+    (prog1 (when (hash-db-open-p db)
+             (when (hash-db-writable-p db)
+               (%write-header db))
+             (close-lhash (hash-db-index db))
+             (close-memory (hash-db-heap db))
+             (setf (hash-db-open-p db) nil)
+             t)
+      (%unlock db))))
 
 ;;; Per-key machinery
 

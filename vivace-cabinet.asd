@@ -32,6 +32,7 @@ from vivace-graph's on-disk structures."
                (:file "murmur3")
                (:file "records")
                (:file "api")
+               (:file "dir-lock")
                (:file "hash-db"))
   :in-order-to ((test-op (test-op "vivace-cabinet/test"))))
 

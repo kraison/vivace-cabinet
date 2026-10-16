@@ -104,3 +104,18 @@
     (is (null (db-get db "k5")))
     (is-true (db-set db "after" "clear"))
     (is (equal "clear" (db-get db "after" :as :string)))))
+
+(test one-writer-or-many-readers
+  "A database open for writing refuses any other handle; readers share."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "l.vch/" dir)))
+      (with-db (db path)
+        (db-set db "k" "v")
+        (signals open-error (open-db path))
+        (signals open-error (open-db path :mode '(:reader))))
+      (with-db (r1 path :mode '(:reader))
+        (with-db (r2 path :mode '(:reader))
+          (is (equal "v" (db-get r2 "k" :as :string))))
+        (signals open-error (open-db path)))
+      (with-db (db path)
+        (is (equal "v" (db-get db "k" :as :string)))))))

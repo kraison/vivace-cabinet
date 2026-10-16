@@ -19,7 +19,11 @@ API follow.
 
 A database is a directory (a trailing `/` is added): `header.dat`,
 `heap.dat`, and the index in `index/`. Keys and values are octet vectors;
-strings are stored as UTF-8 and read back with `:as :string`.
+strings are stored as UTF-8 and read back with `:as :string`. One handle
+may have a database open for writing, or any number for reading, in this
+process or others; an open that conflicts signals `open-error` (an
+advisory `flock` on the directory, which network filesystems may not
+honour).
 
 `open-db` takes `:mode`, a list of `:reader` or `:writer` plus any of
 `:create`, `:truncate`, `:autosync` (default `(:writer :create)`), and
