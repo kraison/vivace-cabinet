@@ -18,7 +18,8 @@ from vivace-graph's on-disk structures."
                              #+(or sbcl lispworks ecl) (:file "rw-lock")
                              (:file "mmap")
                              (:file "buffers")
-                             (:file "allocator")))
+                             (:file "allocator")
+                             (:file "heap-bytes")))
                (:module "structures"
                 :serial t
                 :components (#+ecl (:file "cl-store-ecl")
@@ -28,7 +29,8 @@ from vivace-graph's on-disk structures."
                              (:file "skip-list")
                              (:file "skip-list-cursors")
                              (:file "bplus-tree")))
-               (:file "murmur3"))
+               (:file "murmur3")
+               (:file "records"))
   :in-order-to ((test-op (test-op "vivace-cabinet/test"))))
 
 (defsystem "vivace-cabinet/test"
@@ -42,7 +44,8 @@ from vivace-graph's on-disk structures."
                (:file "linear-hash-tests")
                (:file "skip-list-tests")
                (:file "bplus-tree-tests")
-               (:file "murmur3-tests"))
+               (:file "murmur3-tests")
+               (:file "record-tests"))
   :perform (test-op (o c)
              (unless (uiop:symbol-call
                       :fiveam :run!
