@@ -36,7 +36,8 @@ from vivace-graph's on-disk structures."
                (:file "database")
                (:file "hash-db")
                (:file "tree-engine")
-               (:file "bplus-engine"))
+               (:file "bplus-engine")
+               (:file "skip-list-engine"))
   :in-order-to ((test-op (test-op "vivace-cabinet/test"))))
 
 (defsystem "vivace-cabinet/test"

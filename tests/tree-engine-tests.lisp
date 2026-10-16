@@ -7,18 +7,20 @@
 (in-suite tree-engine-suite)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defparameter *engine-kinds* '(:bplus-tree)
+  (defparameter *engine-kinds* '(:bplus-tree :skip-list)
     "The engines each DEF-ENGINE-TEST runs on."))
 
 (defvar *engine-kind* :bplus-tree)
 
 (defun make-test-engine (heap)
   (ecase *engine-kind*
-    (:bplus-tree (make-bplus-engine heap))))
+    (:bplus-tree (make-bplus-engine heap))
+    (:skip-list (make-skip-list-engine heap))))
 
 (defun open-test-engine (heap address)
   (ecase *engine-kind*
-    (:bplus-tree (open-bplus-engine heap address))))
+    (:bplus-tree (open-bplus-engine heap address))
+    (:skip-list (open-skip-list-engine heap address))))
 
 (defmacro def-engine-test (name &body body)
   "Define NAME/<engine> in TREE-ENGINE-SUITE for each of *ENGINE-KINDS*."
