@@ -114,6 +114,11 @@ OPEN-ERROR."
 (alexandria:define-constant +open-modes+
     '(:reader :writer :create :truncate :autosync) :test 'equal)
 
+(defun %storage-present-p (dir)
+  "True when any of a database's files exist in DIR."
+  (or (probe-file (%header-file dir)) (probe-file (%heap-file dir))
+      (probe-file (%index-dir dir))))
+
 (defun %delete-storage (dir)
   (dolist (f (list (%header-file dir) (%heap-file dir)))
     (when (probe-file f)
@@ -154,11 +159,16 @@ space the heap may grow into before it must be reopened."
               (%signal 'open-error "~a: open in another handle" dir)))
     (let ((ok nil))
       (unwind-protect
-           (let ((exists (probe-file (%header-file dir))))
-             (when (and exists writer (member :truncate mode))
-               (%delete-storage dir)
-               (setf exists nil))
-             (cond (exists (%open-storage db))
+           (progn
+             (cond ((and writer (member :truncate mode)
+                         (%storage-present-p dir))
+                    (%delete-storage dir)
+                    (%create-storage db))
+                   ((probe-file (%header-file dir)) (%open-storage db))
+                   ((%storage-present-p dir)
+                    (%signal 'open-error "~a: incomplete database (open ~
+                                          with :TRUNCATE to discard it)"
+                             dir))
                    ((and writer (member :create mode)) (%create-storage db))
                    (t (%signal 'open-error
                                "~a: no database here (open with :CREATE)"

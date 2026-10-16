@@ -119,3 +119,27 @@
         (signals open-error (open-db path)))
       (with-db (db path)
         (is (equal "v" (db-get db "k" :as :string)))))))
+
+(test truncate-needs-no-create
+  "As in Kyoto, :WRITER :TRUNCATE empties an existing database."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "tc.vch/" dir)))
+      (with-db (db path) (db-set db "k" "v"))
+      (with-db (db path :mode '(:writer :truncate))
+        (is (= 0 (db-count db)))
+        (is (null (db-get db "k"))))
+      (with-db (db path :mode '(:reader))
+        (is (= 0 (db-count db)))))))
+
+(test incomplete-databases-signal-or-truncate
+  "Files without a header (a crash while creating) signal OPEN-ERROR,
+even with :CREATE; :TRUNCATE discards them."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "ic.vch/" dir)))
+      (with-db (db path) (db-set db "k" "v"))
+      (delete-file (merge-pathnames "header.dat" path))
+      (signals open-error (open-db path))
+      (signals open-error (open-db path :mode '(:reader)))
+      (with-db (db path :mode '(:writer :create :truncate))
+        (is (= 0 (db-count db)))
+        (is-true (db-set db "k2" "v2"))))))
