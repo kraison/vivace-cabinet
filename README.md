@@ -72,6 +72,12 @@ cursor holds its position as a key, so other threads' changes leave it
 valid; if its record is removed, it reads the next one. Give each thread
 its own cursor.
 
+A HashDB cursor moves forward only, in no useful order, as in Kyoto
+Cabinet: `cursor-jump-back` and `cursor-step-back` signal
+`not-implemented`, and `cursor-jump` with a key lands on that key's
+record. It reads the index a bucket at a time, so a record that a
+concurrent writer's bucket split moves can be seen twice or missed.
+
 ## Limits
 
 - **No crash safety.** Writes go straight to shared memory maps and reach

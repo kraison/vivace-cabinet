@@ -1,0 +1,130 @@
+;;;; HashDB's cursor: forward through the index a bucket at a time, in no
+;;;; useful order (spec: API).  It reads a bucket's keys when it reaches
+;;;; the bucket, so a record a concurrent split moves to a later bucket
+;;;; can be seen twice, and one moved to an earlier bucket missed.
+
+(in-package #:vivace-cabinet)
+
+(defclass hash-cursor ()
+  ((db :initarg :db :reader %hc-db)
+   (bucket :initform -1 :accessor %hc-bucket)
+   (pending :initform nil :accessor %hc-pending)
+   (key :initform nil :accessor %hc-key)))
+
+(defmethod db-cursor ((db hash-db))
+  (make-instance 'hash-cursor :db db))
+
+(defun %hc-bucket-keys (db bucket)
+  "The keys in BUCKET of DB's index, chain by chain, and whether BUCKET
+is past the last one.  Each chain is read under its stripe."
+  (let* ((index (hash-db-index db))
+         (heap (%db-heap db))
+         (past nil)
+         (digests (with-read-lock ((%lhash-split-lock index))
+                    (if (< bucket (%bucket-count index))
+                        (mapcar #'car
+                                (read-bucket index (%lhash-table index)
+                                             (bucket-offset index bucket)))
+                        (setf past t)))))
+    (values (unless past
+              (loop for d in digests
+                    nconc (with-read-lock ((%stripe db d))
+                            (loop for addr = (lhash-get index d)
+                                    then (record-next heap addr)
+                                  until (or (null addr) (zerop addr))
+                                  collect (record-key heap addr)))))
+            past)))
+
+(defun %hc-advance (c)
+  "Move C to the next key and return it, or NIL at the end.  The caller
+holds the database lock."
+  (loop
+    (when (%hc-pending c)
+      (return (setf (%hc-key c) (pop (%hc-pending c)))))
+    (multiple-value-bind (keys past)
+        (%hc-bucket-keys (%hc-db c) (incf (%hc-bucket c)))
+      (when past
+        (return (setf (%hc-key c) nil)))
+      (setf (%hc-pending c) keys))))
+
+(defmacro %with-hash-cursor ((db c) &body body)
+  "Run BODY with DB bound to C's database, holding its lock shared."
+  `(let ((,db (%hc-db ,c)))
+     (with-read-lock ((%db-lock ,db))
+       (%check-open ,db)
+       ,@body)))
+
+(defmethod cursor-jump ((c hash-cursor) &optional key)
+  (%with-hash-cursor (db c)
+    (if (null key)
+        (progn (setf (%hc-bucket c) -1
+                     (%hc-pending c) nil)
+               (or (and (%hc-advance c) t)
+                   (%fail db :no-record)))
+        (let* ((k (to-octets key))
+               (d (%digest k))
+               (index (hash-db-index db)))
+          (if (with-read-lock ((%stripe db d))
+                (%find db d k))
+              (let ((b (with-read-lock ((%lhash-split-lock index))
+                         (hash index (%lhash-level index) d))))
+                (setf (%hc-bucket c) b
+                      (%hc-pending c) (rest (member k (%hc-bucket-keys db b)
+                                                    :test #'equalp))
+                      (%hc-key c) k)
+                t)
+              (%fail db :no-record))))))
+
+(defmethod cursor-step ((c hash-cursor))
+  (%with-hash-cursor (db c)
+    (if (and (%hc-key c) (%hc-advance c))
+        t
+        (%fail db :no-record))))
+
+(defmethod cursor-get ((c hash-cursor) &key (as :octets))
+  (check-as as)
+  (%with-hash-cursor (db c)
+    (loop
+      (let ((k (%hc-key c)))
+        (unless k
+          (return (%fail db :no-record)))
+        (let* ((d (%digest k))
+               (v (with-read-lock ((%stripe db d))
+                    (let ((addr (%find db d k)))
+                      (and addr (record-value (%db-heap db) addr))))))
+          (when v
+            (return (values (from-octets k as) (from-octets v as))))
+          (%hc-advance c))))))
+
+(defmethod cursor-set-value ((c hash-cursor) value)
+  (if (%hc-key c)
+      (db-replace (%hc-db c) (%hc-key c) value)
+      (%fail (%hc-db c) :no-record)))
+
+(defun %hc-next (c)
+  (%with-hash-cursor (db c)
+    (%hc-advance c)))
+
+(defmethod cursor-remove ((c hash-cursor))
+  (let ((k (%hc-key c)))
+    (cond ((null k) (%fail (%hc-db c) :no-record))
+          ((db-remove (%hc-db c) k)
+           (%hc-next c)
+           t))))
+
+(defmethod cursor-seize ((c hash-cursor) &key (as :octets))
+  (check-as as)
+  (let ((k (%hc-key c)))
+    (if (null k)
+        (%fail (%hc-db c) :no-record)
+        (let ((v (db-seize (%hc-db c) k)))
+          (when v
+            (%hc-next c)
+            (values (from-octets k as) (from-octets v as)))))))
+
+(defmethod cursor-jump-back ((c hash-cursor) &optional key)
+  (declare (ignore key))
+  (%signal 'not-implemented "a HashDB cursor moves forward only"))
+
+(defmethod cursor-step-back ((c hash-cursor))
+  (%signal 'not-implemented "a HashDB cursor moves forward only"))
