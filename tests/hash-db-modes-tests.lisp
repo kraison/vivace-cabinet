@@ -8,7 +8,7 @@
 
 (defun header-count (path)
   "The record count in the header of the database at PATH."
-  (vivace-cabinet::%read-header (uiop:ensure-directory-pathname path)))
+  (getf (%read-header (uiop:ensure-directory-pathname path)) :count))
 
 (test synchronize-persists-the-count
   (with-temp-directory (dir)
@@ -59,6 +59,7 @@
       (signals invalid-argument (open-db path :mode '(:reader :writer)))
       (signals invalid-argument (open-db path :mode '(:create)))
       (signals invalid-argument (open-db path :mode '(:writer :bogus)))
+      (signals invalid-argument (open-db path :mode :writer))
       (signals invalid-argument (open-db path :type :bogus))
       (signals not-implemented (open-db path :type :tree)))))
 
@@ -147,9 +148,9 @@ even with :CREATE; :TRUNCATE discards them."
 (defun abandon-db (db)
   "Drop DB as a process exit would: unmap and unlock, no header write."
   (close-lhash (hash-db-index db))
-  (close-memory (hash-db-heap db))
+  (close-memory (%db-heap db))
   (%unlock db)
-  (setf (hash-db-open-p db) nil))
+  (setf (%db-open-p db) nil))
 
 (test unclosed-writers-are-recounted
   "A writer that exits without CLOSE-DB leaves its records but not its
@@ -171,3 +172,13 @@ count; the next open counts the records again, chains included."
         (db-remove db "k1"))
       (with-db (db path)
         (is (= 4 (db-count db)))))))
+
+(test header-names-the-type
+  "The header records the database type, so OPEN-DB can dispatch on it."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "h.vch/" dir)))
+      (with-db (db path) (db-set db "k" "v"))
+      (let ((header (%read-header path)))
+        (is (eq :hash (getf header :type)))
+        (is (= 1 (getf header :count)))
+        (is (null (getf header :open)))))))

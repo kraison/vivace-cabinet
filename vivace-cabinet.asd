@@ -33,6 +33,7 @@ from vivace-graph's on-disk structures."
                (:file "records")
                (:file "api")
                (:file "dir-lock")
+               (:file "database")
                (:file "hash-db"))
   :in-order-to ((test-op (test-op "vivace-cabinet/test"))))
 

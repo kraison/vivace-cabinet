@@ -52,15 +52,31 @@ returned NIL: :DUPLICATE-RECORD, :NO-RECORD or :NO-PERMISSION, or
       (babel:octets-to-string octets :encoding :utf-8)
       octets))
 
-(defun open-db (path &rest args &key (type :hash) &allow-other-keys)
-  "Open the database in directory PATH (a trailing / is added).  TYPE is
-:HASH; :TREE comes in phase 2c.  Other keywords: OPEN-HASH-DB."
-  (let ((dir (uiop:ensure-directory-pathname (merge-pathnames path))))
-    (case type
-      (:hash (apply #'open-hash-db dir
-                    (alexandria:remove-from-plist args :type)))
-      (:tree (%signal 'not-implemented "TreeDB arrives in phase 2c"))
-      (t (%signal 'invalid-argument "unknown database type ~s" type)))))
+(defun %existing-type (dir args)
+  "The type of the database in DIR, unless ARGS truncate it or its header
+cannot be read (opening then reports that)."
+  (let ((mode (getf args :mode)))
+    (unless (and (listp mode) (member :writer mode) (member :truncate mode))
+      (and (probe-file (%header-file dir))
+           (ignore-errors (getf (%read-header dir) :type))))))
+
+(defun open-db (path &rest args &key (type nil type-p) &allow-other-keys)
+  "Open the database in directory PATH (a trailing / is added).  An
+existing database opens as the type it is; TYPE (:HASH by default)
+chooses what to create, and must match when given.  Other keywords:
+OPEN-HASH-DB."
+  (when (and type-p (not (member type '(:hash :tree))))
+    (%signal 'invalid-argument "unknown database type ~s" type))
+  (let* ((dir (uiop:ensure-directory-pathname (merge-pathnames path)))
+         (found (%existing-type dir args)))
+    (when (and found type-p (not (eq found type)))
+      (%signal 'open-error "~a: a ~(~a~) database, not ~(~a~)"
+               dir found type))
+    (let ((args (alexandria:remove-from-plist args :type)))
+      (ecase (or found type :hash)
+        (:hash (apply #'open-hash-db dir args))
+        (:tree (%signal 'not-implemented
+                       "TreeDB is not built yet"))))))
 
 (defmacro with-db ((var path &rest open-args) &body body)
   "Evaluate BODY with VAR bound to the open database at PATH; close it
