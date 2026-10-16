@@ -91,7 +91,8 @@ until the next node is the tail."
         (k (copy-seq key)))
     (when (%find-in-skip-list sl k)
       (remove-from-skip-list sl k))
-    (add-to-skip-list sl k (copy-seq value))
+    (unless (add-to-skip-list sl k (copy-seq value))
+      (error "skip list: a removed key is still present: ~s" k))
     t))
 
 (defmethod engine-delete ((e skip-list-engine) key)

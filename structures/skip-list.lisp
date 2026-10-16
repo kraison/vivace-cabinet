@@ -281,6 +281,18 @@ garbage), but is cleared here too so both caches are dropped in one place."
   (with-sl-cache-lock (skip-list)
     (remhash addr (%sl-node-cache skip-list))))
 
+(defun %sl-cache-node (skip-list addr node)
+  "Cache NODE for ADDR unless another thread cached a node for it first;
+return the cached node.  Two objects for one address go stale apart: a
+splice updates one's pointers, and searches through the other loop."
+  (let ((table (%sl-node-cache skip-list)))
+    (with-sl-cache-lock (skip-list)
+      #+sbcl (sb-ext:with-locked-hash-table (table)
+               (or (gethash addr table)
+                   (setf (gethash addr table) node)))
+      #-sbcl (or (gethash addr table)
+                 (setf (gethash addr table) node)))))
+
 (defun read-skip-node (skip-list addr)
   (declare (type word addr))
   (if (= addr 0)
@@ -317,12 +329,10 @@ garbage), but is cleared here too so both caches are dropped in one place."
                         ;; binding *CACHE-ENABLED* to NIL really does force a
                         ;; fresh read (the profiler's cold-read workloads and
                         ;; any correctness-sensitive bypass depend on that).
-                        (when *cache-enabled*
-                          (setf (aref cache idx) node)
-                          (with-sl-cache-lock (skip-list)
-                            (setf (gethash addr (%sl-node-cache skip-list))
-                                  node)))
-                        node)))))))))
+                        (if *cache-enabled*
+                            (setf (aref cache idx)
+                                  (%sl-cache-node skip-list addr node))
+                            node))))))))))
 
 (defstruct
     (skip-list
@@ -702,6 +712,12 @@ without re-grabbing, and the caller's unwind released it anyway."
                           skip-list
                           (loop for level from 0 to (1- top-level)
                                 collect (%sn-addr (aref preds level))))))
+                  ;; Re-read every locked pred's pointer first: checked
+                  ;; after the marked tests, a stale one was never
+                  ;; refreshed and each retry found the same removed node.
+                  (loop for level from 0 to (1- top-level)
+                        do (get-node-pointer skip-list (aref preds level)
+                                             level))
                   (setq valid-p
                         (loop for level from 0 to (1- top-level)
                               always
@@ -847,6 +863,10 @@ none matched."
                                     (loop for level from 0 to (1- top-level)
                                           collect
                                           (%sn-addr (aref preds level)))))))
+                      ;; As in ADD-TO-SKIP-LIST: refresh before judging.
+                      (loop for level from 0 to (1- top-level)
+                            do (get-node-pointer skip-list (aref preds level)
+                                                 level))
                       (when (and (not (%sn-marked-p skip-list node))
                                  (%sn-fully-linked-p skip-list node)
                                  (loop for level from 0 to (1- top-level)

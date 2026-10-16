@@ -362,3 +362,14 @@ node caching -- which the profiler's cold-read workloads rely on."
                         (vivace-cabinet::%node-cache-vec-index
                          (vivace-cabinet::%sn-addr (find-in-skip-list sl 7)))))
             "a read with caching disabled populated the direct-mapped cache")))))
+
+(test skip-list-caches-one-node-per-address
+  "Threads that miss the node cache for one address must share the node
+cached first: a second object for the address goes stale apart from it,
+and searches through it loop."
+  (with-temp-memory (heap)
+    (let ((sl (make-integer-skip-list heap))
+          (a (%make-skip-node :addr 4096))
+          (b (%make-skip-node :addr 4096)))
+      (is (eq a (%sl-cache-node sl 4096 a)))
+      (is (eq a (%sl-cache-node sl 4096 b))))))

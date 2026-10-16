@@ -61,7 +61,8 @@ from vivace-graph's on-disk structures."
                (:file "tree-engine-tests")
                (:file "tree-db-tests")
                (:file "cursor-tests")
-               (:file "hash-cursor-tests"))
+               (:file "hash-cursor-tests")
+               (:file "concurrency-tests"))
   :perform (test-op (o c)
              (unless (uiop:symbol-call
                       :fiveam :run!

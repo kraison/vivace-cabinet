@@ -22,7 +22,7 @@ names its source in its first line. vivace-graph itself is not changed.
 | structures/linear-hash.lisp | linear-hash.lisp | whole file; `open-lhash` signals when it cannot open, after unmapping what it mapped (vivace-graph's returned a handle whose files were unmapped) |
 | structures/cl-store-ecl.lisp | cl-store-ecl.lisp | whole file (ECL only) |
 | structures/cursors.lisp | cursors.lisp | whole file |
-| structures/skip-list.lisp | skip-list.lisp | all but the development and benchmark functions |
+| structures/skip-list.lisp | skip-list.lisp | all but the development and benchmark functions; one cached node object per address (`%sl-cache-node`), and add and remove re-read each locked predecessor's pointer before validating (two objects for one node livelocked concurrent writers) |
 | structures/skip-list-cursors.lisp | skip-list-cursors.lisp | whole file |
 | structures/bplus-tree.lisp | bplus-tree.lisp | all but the view-index protocol and the graph-codec factory; value-qualified removal compares octets with `equalp` (vivace-graph's compared them with `equal`, which never matches); full pages split by bytes, not entry count (#4); BPT-INSERT and BPT-REMOVE run lock-free cores, %BPT-INSERT-TOP and %BPT-REMOVE-TOP, which TreeDB calls under one lock |
 | tests/allocator-tests.lisp | tests/allocator-tests.lisp | adapted: package and suite names |
