@@ -90,31 +90,67 @@ a HashDB header."
       (%write-header db))))
 
 (defun %open-storage (db)
+  "Open DB's existing files.  A failure closes what opened and signals
+OPEN-ERROR."
   (destructuring-bind (&key heap-reservation &allow-other-keys)
       (hash-db-tuning db)
     (let ((dir (hash-db-dir db)))
-      (setf (hash-db-record-count db) (%read-header dir)
-            (hash-db-heap db) (let ((*mmap-min-reservation*
-                                      heap-reservation))
-                                (open-memory (namestring (%heap-file dir))))
-            (hash-db-index db) (open-lhash (%index-dir dir))))))
+      (handler-case
+          (setf (hash-db-record-count db) (%read-header dir)
+                (hash-db-heap db) (let ((*mmap-min-reservation*
+                                          heap-reservation))
+                                    (open-memory
+                                     (namestring (%heap-file dir))))
+                (hash-db-index db) (open-lhash (%index-dir dir)))
+        (error (c)
+          (when (hash-db-heap db)
+            (ignore-errors (close-memory (hash-db-heap db)))
+            (setf (hash-db-heap db) nil))
+          (if (typep c 'open-error)
+              (error c)
+              (%signal 'open-error "~a: ~a" dir c)))))))
+
+(alexandria:define-constant +open-modes+
+    '(:reader :writer :create :truncate :autosync) :test 'equal)
+
+(defun %delete-storage (dir)
+  (dolist (f (list (%header-file dir) (%heap-file dir)))
+    (when (probe-file f)
+      (delete-file f)))
+  (uiop:delete-directory-tree (%index-dir dir) :validate t
+                                               :if-does-not-exist :ignore))
 
 (defun open-hash-db (dir &key (mode '(:writer :create)) (buckets 4)
                            (max-locks *max-locks*)
                            (heap-size (* 64 1024 1024))
                            (heap-reservation (* 64 1024 1024 1024)))
-  "Open, or create, the HashDB in DIR.  Task 4 adds modes."
-  (declare (ignore mode))
-  (let ((db (make-instance 'hash-db
-                           :dir dir :writable t :autosync nil
-                           :tuning (list :buckets buckets
-                                         :max-locks max-locks
-                                         :heap-size heap-size
-                                         :heap-reservation
-                                         heap-reservation))))
-    (if (probe-file (%header-file dir))
-        (%open-storage db)
-        (%create-storage db))
+  "Open the HashDB in DIR.  MODE holds :READER or :WRITER, and any of
+:CREATE, :TRUNCATE, :AUTOSYNC.  BUCKETS and MAX-LOCKS tune the linear
+hash; HEAP-SIZE is the heap's first size; HEAP-RESERVATION is the address
+space the heap may grow into before it must be reopened."
+  (let ((bad (set-difference mode +open-modes+)))
+    (when bad
+      (%signal 'invalid-argument "unknown open modes ~s" bad)))
+  (unless (= 1 (count-if (lambda (m) (member m mode)) '(:reader :writer)))
+    (%signal 'invalid-argument
+             "MODE needs exactly one of :READER and :WRITER: ~s" mode))
+  (let* ((writer (and (member :writer mode) t))
+         (db (make-instance 'hash-db
+                            :dir dir :writable writer
+                            :autosync (and (member :autosync mode) t)
+                            :tuning (list :buckets buckets
+                                          :max-locks max-locks
+                                          :heap-size heap-size
+                                          :heap-reservation
+                                          heap-reservation)))
+         (exists (probe-file (%header-file dir))))
+    (when (and exists writer (member :truncate mode))
+      (%delete-storage dir)
+      (setf exists nil))
+    (cond (exists (%open-storage db))
+          ((and writer (member :create mode)) (%create-storage db))
+          (t (%signal 'open-error
+                      "~a: no database here (open with :CREATE)" dir)))
     (setf (hash-db-open-p db) t)
     db))
 
@@ -306,3 +342,45 @@ chain (NIL at the head); NIL if KEY is absent."
     (%check-open db)
     (with-lock-held ((hash-db-count-lock db))
       (hash-db-record-count db))))
+
+;;; Whole-database operations
+
+(defmethod db-path ((db hash-db))
+  (namestring (hash-db-dir db)))
+
+(defmethod db-size ((db hash-db))
+  "Bytes in use: the heap's extent and the index's buckets and overflow.
+File sizes would overstate: the index files are sparse."
+  (with-read-lock ((hash-db-lock db))
+    (%check-open db)
+    (let ((index (hash-db-index db)))
+      (+ (read-memory-pointer (hash-db-heap db))
+         (* (bucket-count index) (%lhash-bucket-bytes index))
+         (read-lhash-next-overflow-pointer index)))))
+
+(defun %sync-storage (db)
+  (let ((index (hash-db-index db)))
+    (sync-region (memory-mmap (hash-db-heap db)))
+    (dolist (mf (list (%lhash-config index) (%lhash-table index)
+                      (%lhash-overflow index)))
+      (sync-region mf))
+    (%write-header db)))
+
+(defmethod db-synchronize ((db hash-db) &key hard)
+  (declare (ignore hard))
+  (with-write-lock ((hash-db-lock db))
+    (%check-open db)
+    (when (hash-db-writable-p db)
+      (%sync-storage db))
+    t))
+
+(defmethod db-clear ((db hash-db))
+  (if (hash-db-writable-p db)
+      (with-write-lock ((hash-db-lock db))
+        (%check-open db)
+        (close-lhash (hash-db-index db))
+        (close-memory (hash-db-heap db))
+        (%delete-storage (hash-db-dir db))
+        (%create-storage db)
+        t)
+      (%fail db :no-permission)))

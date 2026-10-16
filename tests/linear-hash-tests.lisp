@@ -160,3 +160,14 @@ slot must describe where the lhash was OPENED from."
       (let ((h3 (open-lhash orig)))
         (is (= 7 (lhash-get h3 k)) "and the original still reads")
         (close-lhash h3)))))
+
+(test open-lhash-signals-on-a-corrupt-table
+  "A bad magic byte makes OPEN-LHASH signal, not return a handle whose
+files are unmapped."
+  (with-temp-directory (dir)
+    (close-lhash (make-lhash :location dir :buckets 4))
+    (with-open-file (s (merge-pathnames "table.dat" dir)
+                       :direction :output :if-exists :overwrite
+                       :element-type '(unsigned-byte 8))
+      (write-byte 0 s))
+    (signals error (open-lhash dir))))

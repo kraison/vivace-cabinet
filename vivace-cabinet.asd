@@ -48,7 +48,8 @@ from vivace-graph's on-disk structures."
                (:file "bplus-tree-tests")
                (:file "murmur3-tests")
                (:file "record-tests")
-               (:file "hash-db-tests"))
+               (:file "hash-db-tests")
+               (:file "hash-db-modes-tests"))
   :perform (test-op (o c)
              (unless (uiop:symbol-call
                       :fiveam :run!

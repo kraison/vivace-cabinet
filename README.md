@@ -5,19 +5,49 @@ A Kyoto Cabinet-style key-value store in Common Lisp, built from
 structures: a memory-mapped heap, a linear hash, a skip list and a B+ tree.
 The design is in `docs/superpowers/specs/2026-10-16-vivace-cabinet-design.md`.
 
-**Status:** the structures are extracted and tested on their own (unit 2a).
-The Kyoto-style API (`open-db`, `db-set`, `db-get`, ...) comes next.
+**Status:** HashDB works (unit 2b): `open-db`, `db-set`, `db-get`,
+`db-add`, `db-replace`, `db-append`, `db-check`, `db-seize`, `db-remove`,
+`db-count`, `db-size`, `db-path`, `db-clear`, `db-synchronize`,
+`db-error`, `close-db`, `with-db`. TreeDB, cursors and the rest of Kyoto's
+API follow.
+
+## Use
+
+    (vivace-cabinet:with-db (db "/var/data/words.vch")
+      (vivace-cabinet:db-set db "apple" "red")
+      (vivace-cabinet:db-get db "apple" :as :string))   ; => "red"
+
+A database is a directory (a trailing `/` is added): `header.dat`,
+`heap.dat`, and the index in `index/`. Keys and values are octet vectors;
+strings are stored as UTF-8 and read back with `:as :string`.
+
+`open-db` takes `:mode`, a list of `:reader` or `:writer` plus any of
+`:create`, `:truncate`, `:autosync` (default `(:writer :create)`), and
+tuning keywords: `:buckets` and `:max-locks` for the index, `:heap-size`,
+and `:heap-reservation` (default 64 GiB of address space the heap may
+grow into in one session).
+
+As in Kyoto Cabinet, an operation that fails for an ordinary reason (adding
+a key that exists, removing one that doesn't, writing to a reader) returns
+NIL, and `(db-error db)` says why: `:duplicate-record`, `:no-record` or
+`:no-permission`. Real problems signal `vivace-cabinet-error` subclasses:
+`open-error`, `invalid-argument`, `not-implemented`. `db-check` returns the
+value's size; `db-size` returns the bytes in use, not file sizes (the
+index files are sparse).
 
 ## Limits
 
 - **No crash safety.** Writes go straight to shared memory maps and reach
   disk on close; a crash mid-write can leave a structure inconsistent.
 - **Address space.** Each mapped file reserves 8 times its size, at least
-  1 GiB, of virtual address space: about 17 GiB per linear hash and 1 GiB
-  per heap. Limits on address space (`ulimit -v`) count these.
-- **Growth stops at the reservation.** A heap created at 64 MiB cannot grow
-  past 1 GiB until it is reopened (each linear-hash file stops at 8000 MiB),
-  and the error names vivace-graph's `GRAPH-DB` package. Bind
+  1 GiB, of virtual address space: about 17 GiB per linear hash. A
+  HashDB's heap reserves `:heap-reservation` (64 GiB by default), so an
+  open HashDB holds about 81 GiB. Limits on address space (`ulimit -v`)
+  count these.
+- **Growth stops at the reservation.** A HashDB's heap cannot grow past
+  `:heap-reservation` until it is reopened, and each linear-hash file
+  stops at 8000 MiB; the error names vivace-graph's `GRAPH-DB` package.
+  Using the structures directly, bind
   `vivace-cabinet::*mmap-reservation-multiplier*` or
   `vivace-cabinet::*mmap-min-reservation*` before creating or opening to
   reserve more.
