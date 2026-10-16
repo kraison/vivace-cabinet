@@ -34,7 +34,9 @@ from vivace-graph's on-disk structures."
                (:file "api")
                (:file "dir-lock")
                (:file "database")
-               (:file "hash-db"))
+               (:file "hash-db")
+               (:file "tree-engine")
+               (:file "bplus-engine"))
   :in-order-to ((test-op (test-op "vivace-cabinet/test"))))
 
 (defsystem "vivace-cabinet/test"
@@ -51,7 +53,8 @@ from vivace-graph's on-disk structures."
                (:file "murmur3-tests")
                (:file "record-tests")
                (:file "hash-db-tests")
-               (:file "hash-db-modes-tests"))
+               (:file "hash-db-modes-tests")
+               (:file "tree-engine-tests"))
   :perform (test-op (o c)
              (unless (uiop:symbol-call
                       :fiveam :run!

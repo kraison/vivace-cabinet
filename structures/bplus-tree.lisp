@@ -607,27 +607,32 @@ Returns (SEP-DKEY SEP-SKEY RIGHT-ADDR)."
                              (progn (%bpt-write-page tree addr buf) :no-split)
                              (%bpt-split-internal tree addr buf sep-dkey sep-skey right-addr))))))))))))
 
+(defun %bpt-insert-top (tree dkey skey sval)
+  "BPT-INSERT's work, for a caller holding the tree's write lock."
+  (let ((res (%bpt-insert tree (%bpt-root tree) dkey skey sval)))
+    (cond ((eq res :dup) nil)
+          (t
+           (when (consp res)
+             ;; Root split: grow a new internal root.
+             (destructuring-bind (sep-dkey sep-skey right-addr) res
+               (let ((new-root (%bpt-alloc-page tree))
+                     (old-root (%bpt-root tree)))
+                 (%bpt-write-page
+                  tree new-root
+                  (%bpt-encode-page tree nil old-root
+                                    (list (list sep-dkey sep-skey
+                                                right-addr))))
+                 (setf (%bpt-root tree) new-root)
+                 (incf (%bpt-height tree)))))
+           (incf (%bpt-count tree))
+           (%bpt-sync-root tree)
+           t))))
+
 (defun bpt-insert (tree dkey skey sval)
   "Insert DKEY -> value.  DKEY is the deserialized key; SKEY / SVAL the serialized
 key / value bytes.  Duplicate keys are a no-op (returns NIL); returns T on insert."
   (with-bpt-write-lock (tree)
-    (let ((res (%bpt-insert tree (%bpt-root tree) dkey skey sval)))
-      (cond ((eq res :dup) nil)
-            (t
-             (when (consp res)
-               ;; Root split: grow a new internal root.
-               (destructuring-bind (sep-dkey sep-skey right-addr) res
-                 (let ((new-root (%bpt-alloc-page tree))
-                       (old-root (%bpt-root tree)))
-                   (%bpt-write-page
-                    tree new-root
-                    (%bpt-encode-page tree nil old-root
-                                      (list (list sep-dkey sep-skey right-addr))))
-                   (setf (%bpt-root tree) new-root)
-                   (incf (%bpt-height tree)))))
-             (incf (%bpt-count tree))
-             (%bpt-sync-root tree)
-             t)))))
+    (%bpt-insert-top tree dkey skey sval)))
 
 (defun %bpt-usable (tree) (- (%bpt-page-size tree) +bpt-p-slots-offset+))
 
@@ -726,21 +731,25 @@ root and drop a level."
             (when (> (%bpt-height tree) 1) (decf (%bpt-height tree))))
           (return)))))
 
+(defun %bpt-remove-top (tree dkey &optional (sval nil sval-p) value-equal)
+  "BPT-REMOVE's work, for a caller holding the tree's write lock."
+  (let ((veq (or value-equal (%bpt-value-equal tree))))
+    (multiple-value-bind (status)
+        (%bpt-delete tree (%bpt-root tree) dkey sval sval-p veq t)
+      (when (eq status :removed)
+        (%bpt-maybe-collapse-root tree)
+        (decf (%bpt-count tree))
+        (%bpt-sync-root tree)
+        t))))
+
 (defun bpt-remove (tree dkey &optional (sval nil sval-p) value-equal)
   "Remove DKEY from its leaf.  With SVAL given, only remove when the stored value
 also matches (via VALUE-EQUAL or the tree's).  Returns T if a key was removed.
 Merges underfull pages on the way up and collapses a degenerate root."
   (with-bpt-write-lock (tree)
-    (let ((veq (or value-equal (%bpt-value-equal tree))))
-      (multiple-value-bind (status)
-          (%bpt-delete tree (%bpt-root tree) dkey sval sval-p veq t)
-        (if (eq status :removed)
-            (progn
-              (%bpt-maybe-collapse-root tree)
-              (decf (%bpt-count tree))
-              (%bpt-sync-root tree)
-              t)
-            nil)))))
+    (if sval-p
+        (%bpt-remove-top tree dkey sval value-equal)
+        (%bpt-remove-top tree dkey))))
 
 (defclass bplus-cursor (cursor)
   ((tree :initarg :tree :accessor bpc-tree)

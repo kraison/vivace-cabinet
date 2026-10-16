@@ -11,6 +11,7 @@
 (define-condition not-implemented (vivace-cabinet-error) ())
 (define-condition invalid-argument (vivace-cabinet-error) ())
 (define-condition open-error (vivace-cabinet-error) ())
+(define-condition key-too-long (vivace-cabinet-error) ())
 
 (defun %signal (class control &rest args)
   (error class :message (apply #'format nil control args)))

@@ -16,4 +16,5 @@
            #:open-error #:open-db #:close-db #:with-db
            #:db-set #:db-add #:db-replace #:db-append #:db-get #:db-check
            #:db-seize #:db-remove #:db-count #:db-size #:db-path
-           #:db-clear #:db-synchronize #:db-error))
+           #:db-clear #:db-synchronize #:db-error
+           #:key-too-long #:octets<))
