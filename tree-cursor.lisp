@@ -1,12 +1,14 @@
 ;;;; TreeDB's cursor: its position is a key, so changes to the tree leave
 ;;;; it valid; each move asks the engine for the next or previous key
-;;;; (spec: API).  If its record is removed, the cursor reads the next.
+;;;; (spec: API).  If its record is removed, the cursor reads the next one
+;;;; in the direction it last moved.
 
 (in-package #:vivace-cabinet)
 
 (defclass tree-cursor ()
   ((db :initarg :db :reader %tc-db)
-   (key :initform nil :accessor %tc-key)))
+   (key :initform nil :accessor %tc-key)
+   (backward :initform nil :accessor %tc-backward)))
 
 (defmethod db-cursor ((db tree-db))
   (make-instance 'tree-cursor :db db))
@@ -20,8 +22,9 @@
 
 (defun %tc-seek (c fn key strict)
   "Move C to the record (FN engine KEY STRICT) finds; T, or NIL with
-:NO-RECORD."
-  (setf (%tc-key c) (%tc-find c fn key strict))
+:NO-RECORD.  FN ENGINE-FLOOR makes C's direction backward."
+  (setf (%tc-backward c) (eq fn #'engine-floor)
+        (%tc-key c) (%tc-find c fn key strict))
   (or (and (%tc-key c) t)
       (%fail (%tc-db c) :no-record)))
 
@@ -49,7 +52,8 @@
         (multiple-value-bind (k v)
             (with-read-lock ((%db-lock db))
               (%check-open db)
-              (engine-ceiling (tree-db-engine db) (%tc-key c) nil))
+              (funcall (if (%tc-backward c) #'engine-floor #'engine-ceiling)
+                       (tree-db-engine db) (%tc-key c) nil))
           (setf (%tc-key c) k)
           (if k
               (values (from-octets k as) (from-octets v as))

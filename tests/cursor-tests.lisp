@@ -101,3 +101,18 @@ next one."
     (with-cursor (cur db)
       (cursor-jump cur)
       (is (equal '("c" "b" "a") (cursor-walk cur #'cursor-step))))))
+
+(def-tree-test cursor-follows-removal-backward
+  "Moving backward, a cursor whose record is removed reads the previous
+one, not the next."
+  (with-temp-db (db)
+    (dotimes (i 5)
+      (db-set db (keyed i) "v"))
+    (with-cursor (cur db)
+      (cursor-jump-back cur (keyed 3))
+      (db-remove db (keyed 3))
+      (is (equal (keyed 2) (cursor-get-key cur :as :string)))
+      (is-true (cursor-step-back cur))
+      (is (equal (keyed 1) (cursor-get-key cur :as :string)))
+      (db-remove db (keyed 1))
+      (is (equal (keyed 0) (cursor-get-key cur :as :string))))))
