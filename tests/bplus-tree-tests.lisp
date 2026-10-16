@@ -124,3 +124,20 @@ root; the tree stays correct and usable throughout."
                (is (= 3000 (bplus-tree-count tree2)))
                (is (equal "v1234" (tree-value tree2 1234))))
           (close-memory heap2))))))
+
+(test bplus-split-by-bytes
+  "A page of small entries splits by bytes, so it still takes large ones:
+after 12 one-byte values, 300-, 400- and 600-byte values used to fail
+after 12, 9 and 6 inserts (#4)."
+  (dolist (size '(300 400 600 1000))
+    (with-temp-memory (heap)
+      (let ((tree (make-integer-bplus-tree heap))
+            (big (make-string size :initial-element #\v)))
+        (loop for k from 1 to 12
+              do (add-to-skip-list tree k "x"))
+        (loop for k from 13 to 60
+              do (is-true (add-to-skip-list tree k big)))
+        (is (= 60 (bplus-tree-count tree)))
+        (is (equal big (tree-value tree 60)))
+        (is (equal (loop for k from 1 to 60 collect k)
+                   (cursor-keys (make-cursor tree))))))))

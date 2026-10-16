@@ -24,7 +24,7 @@ names its source in its first line. vivace-graph itself is not changed.
 | structures/cursors.lisp | cursors.lisp | whole file |
 | structures/skip-list.lisp | skip-list.lisp | all but the development and benchmark functions |
 | structures/skip-list-cursors.lisp | skip-list-cursors.lisp | whole file |
-| structures/bplus-tree.lisp | bplus-tree.lisp | all but the view-index protocol and the graph-codec factory; value-qualified removal compares octets with `equalp` (vivace-graph's compared them with `equal`, which never matches) |
+| structures/bplus-tree.lisp | bplus-tree.lisp | all but the view-index protocol and the graph-codec factory; value-qualified removal compares octets with `equalp` (vivace-graph's compared them with `equal`, which never matches); full pages split by bytes, not entry count (#4) |
 | tests/allocator-tests.lisp | tests/allocator-tests.lisp | adapted: package and suite names |
 | tests/linear-hash-tests.lisp | tests/linear-hash-tests.lisp | adapted: package and suite names; `reopen-preserves-contents` closes its second handle; `open-lhash-signals-on-a-corrupt-table` is new |
 | tests/skip-list-tests.lisp | tests/skip-list-tests.lisp | adapted: package and suite names; `list-comparators-are-a-strict-total-order` dropped (tests code not copied); keys and values use a test codec |
