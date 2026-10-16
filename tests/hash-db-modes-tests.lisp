@@ -143,3 +143,31 @@ even with :CREATE; :TRUNCATE discards them."
       (with-db (db path :mode '(:writer :create :truncate))
         (is (= 0 (db-count db)))
         (is-true (db-set db "k2" "v2"))))))
+
+(defun abandon-db (db)
+  "Drop DB as a process exit would: unmap and unlock, no header write."
+  (close-lhash (hash-db-index db))
+  (close-memory (hash-db-heap db))
+  (%unlock db)
+  (setf (hash-db-open-p db) nil))
+
+(test unclosed-writers-are-recounted
+  "A writer that exits without CLOSE-DB leaves its records but not its
+count; the next open counts the records again, chains included."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "u.vch/" dir)))
+      (let ((db (open-db path)))
+        (dotimes (i 3)
+          (db-set db (format nil "k~a" i) "v"))
+        (let ((*key-digest* (constant-digest 7)))
+          (dotimes (i 3)
+            (db-set db (format nil "c~a" i) "v")))
+        (abandon-db db))
+      (with-db (db path :mode '(:reader))
+        (is (= 6 (db-count db))))
+      (with-db (db path)
+        (is (= 6 (db-count db)))
+        (db-remove db "k0")
+        (db-remove db "k1"))
+      (with-db (db path)
+        (is (= 4 (db-count db)))))))

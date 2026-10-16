@@ -45,14 +45,16 @@ collisions; a database must keep one digest function for life.")
 (defun %index-dir (dir) (merge-pathnames "index/" dir))
 (defun %header-file (dir) (merge-pathnames "header.dat" dir))
 
-(defun %write-header (db)
-  "Write DB's header: magic VCAB, format 1, type 1 (hash), record count."
+(defun %write-header (db &key open)
+  "Write DB's header: magic VCAB, format 1, type 1 (hash), OPEN (1 while a
+writer has it open), record count."
   (let ((h (make-array +header-bytes+ :element-type '(unsigned-byte 8)
                                       :initial-element 0))
         (n (hash-db-record-count db)))
     (replace h +header-magic+)
     (setf (aref h 4) 1
-          (aref h 5) 1)
+          (aref h 5) 1
+          (aref h 6) (if open 1 0))
     (dotimes (i 8)
       (setf (aref h (+ 8 i)) (ldb (byte 8 (* 8 i)) n)))
     (with-open-file (out (%header-file (hash-db-dir db))
@@ -61,8 +63,8 @@ collisions; a database must keep one digest function for life.")
       (write-sequence h out))))
 
 (defun %read-header (dir)
-  "The record count in DIR's header; signals OPEN-ERROR for anything but
-a HashDB header."
+  "The record count in DIR's header, and whether a writer left it open;
+signals OPEN-ERROR for anything but a HashDB header."
   (let ((h (make-array +header-bytes+ :element-type '(unsigned-byte 8))))
     (with-open-file (in (%header-file dir) :element-type '(unsigned-byte 8))
       (unless (= +header-bytes+ (read-sequence h in))
@@ -72,8 +74,20 @@ a HashDB header."
                  (= 1 (aref h 5)))
       (%signal 'open-error "~a: not a vivace-cabinet HashDB" dir))
     (let ((n 0))
-      (dotimes (i 8 n)
-        (setf n (logior n (ash (aref h (+ 8 i)) (* 8 i))))))))
+      (dotimes (i 8)
+        (setf n (logior n (ash (aref h (+ 8 i)) (* 8 i)))))
+      (values n (= 1 (aref h 6))))))
+
+(defun %count-records (db)
+  "DB's records, counted by walking every chain in the index."
+  (let ((heap (hash-db-heap db))
+        (n 0))
+    (map-lhash (lambda (entry)
+                 (loop for addr = (cdr entry) then (record-next heap addr)
+                       until (zerop addr)
+                       do (incf n)))
+               (hash-db-index db))
+    n))
 
 (defun %create-storage (db)
   (destructuring-bind (&key buckets max-locks heap-size heap-reservation)
@@ -88,21 +102,26 @@ a HashDB header."
                                            :buckets buckets
                                            :max-locks max-locks)
             (hash-db-record-count db) 0)
-      (%write-header db))))
+      (%write-header db :open t))))
 
 (defun %open-storage (db)
-  "Open DB's existing files.  A failure closes what opened and signals
-OPEN-ERROR."
+  "Open DB's existing files, recounting the records if a writer left them
+open.  A failure closes what opened and signals OPEN-ERROR."
   (destructuring-bind (&key heap-reservation &allow-other-keys)
       (hash-db-tuning db)
     (let ((dir (hash-db-dir db)))
       (handler-case
-          (setf (hash-db-record-count db) (%read-header dir)
-                (hash-db-heap db) (let ((*mmap-min-reservation*
-                                          heap-reservation))
-                                    (open-memory
-                                     (namestring (%heap-file dir))))
-                (hash-db-index db) (open-lhash (%index-dir dir)))
+          (multiple-value-bind (count left-open) (%read-header dir)
+            (setf (hash-db-heap db) (let ((*mmap-min-reservation*
+                                            heap-reservation))
+                                      (open-memory
+                                       (namestring (%heap-file dir))))
+                  (hash-db-index db) (open-lhash (%index-dir dir))
+                  (hash-db-record-count db) (if left-open
+                                                (%count-records db)
+                                                count))
+            (when (hash-db-writable-p db)
+              (%write-header db :open t)))
         (error (c)
           (when (hash-db-heap db)
             (ignore-errors (close-memory (hash-db-heap db)))
@@ -395,7 +414,7 @@ File sizes would overstate: the index files are sparse."
     (dolist (mf (list (%lhash-config index) (%lhash-table index)
                       (%lhash-overflow index)))
       (sync-region mf))
-    (%write-header db)))
+    (%write-header db :open t)))
 
 (defmethod db-synchronize ((db hash-db) &key hard)
   (declare (ignore hard))

@@ -45,7 +45,9 @@ index files are sparse).
 ## Limits
 
 - **No crash safety.** Writes go straight to shared memory maps and reach
-  disk on close; a crash mid-write can leave a structure inconsistent.
+  disk on close; a crash mid-write can leave a structure inconsistent. A
+  writer that exits without `close-db` leaves its records, and the next
+  open counts them again by walking the whole index.
 - **Address space.** Each mapped file reserves 8 times its size, at least
   1 GiB, of virtual address space: about 17 GiB per linear hash. A
   HashDB's heap reserves `:heap-reservation` (64 GiB by default), so an
