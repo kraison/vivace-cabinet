@@ -4,8 +4,8 @@ from vivace-graph's on-disk structures."
   :author "Kevin Raison"
   :license "MIT"
   :version "0.1.0"
-  :depends-on ("alexandria" "bordeaux-threads" "cffi" "cl-store" "log4cl"
-               #+(or ccl lispworks) "closer-mop")
+  :depends-on ("alexandria" "babel" "bordeaux-threads" "cffi" "cl-store"
+               "log4cl" "uiop" #+(or ccl lispworks) "closer-mop")
   :serial t
   :components ((:file "package")
                (:module "substrate"
@@ -27,7 +27,8 @@ from vivace-graph's on-disk structures."
                              (:file "cursors")
                              (:file "skip-list")
                              (:file "skip-list-cursors")
-                             (:file "bplus-tree"))))
+                             (:file "bplus-tree")))
+               (:file "murmur3"))
   :in-order-to ((test-op (test-op "vivace-cabinet/test"))))
 
 (defsystem "vivace-cabinet/test"
@@ -40,7 +41,8 @@ from vivace-graph's on-disk structures."
                (:file "allocator-tests")
                (:file "linear-hash-tests")
                (:file "skip-list-tests")
-               (:file "bplus-tree-tests"))
+               (:file "bplus-tree-tests")
+               (:file "murmur3-tests"))
   :perform (test-op (o c)
              (unless (uiop:symbol-call
                       :fiveam :run!

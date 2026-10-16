@@ -85,3 +85,8 @@ TEST-SERIALIZE (vivace-graph used its general serializer here)."
                   :value-deserializer 'test-deserialize
                   :value-equal 'equal
                   :duplicates-allowed-p duplicates-allowed-p))
+
+(defun octets-of (&rest bytes)
+  "BYTES as an octet vector."
+  (make-array (length bytes) :element-type '(unsigned-byte 8)
+                             :initial-contents bytes))
