@@ -47,3 +47,10 @@
     (let ((a (write-record heap (octets-of 1 2) (octets-of 3 4) 0)))
       (free-record heap a)
       (is (= a (write-record heap (octets-of 5 6) (octets-of 7 8) 0))))))
+
+(test size-classes-round-up-by-under-a-quarter
+  (is (equal '(16 512 640 1024 1280)
+             (mapcar #'%size-class '(16 512 513 1024 1025))))
+  (is (loop for n from 513 to 300000 by 7
+            always (let ((c (%size-class n)))
+                     (and (<= n c) (< c (* 5/4 n)))))))

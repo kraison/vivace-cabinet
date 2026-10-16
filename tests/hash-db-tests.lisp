@@ -190,3 +190,25 @@ every key lands once and exactly one add of the shared key wins."
       (dotimes (n 4)
         (is (equal "499" (db-get db (format nil "t~a-499" n)
                                  :as :string)))))))
+
+(test growing-a-value-reuses-freed-space
+  "300 appends of 1000 bytes: freed records are reused, so the heap grows
+by a small multiple of the final value, not quadratically."
+  (with-temp-db (db)
+    (let ((before (db-size db))
+          (chunk (make-array 1000 :element-type '(unsigned-byte 8)
+                                  :initial-element 1)))
+      (dotimes (i 300)
+        (db-append db "log" chunk))
+      (is (= 300000 (db-check db "log")))
+      (is (< (- (db-size db) before) (* 20 300000))))))
+
+(test values-of-varying-size-reuse-freed-space
+  "Replacing a value with 500 different sizes from 600 to 1099 bytes
+reuses freed records instead of allocating one per size."
+  (with-temp-db (db)
+    (let ((before (db-size db)))
+      (loop for n from 600 below 1100
+            do (db-set db "k" (make-string n :initial-element #\x)))
+      (is (= 1099 (db-check db "k")))
+      (is (< (- (db-size db) before) 50000)))))

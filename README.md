@@ -60,6 +60,11 @@ index files are sparse).
   `vivace-cabinet::*mmap-reservation-multiplier*` or
   `vivace-cabinet::*mmap-min-reservation*` before creating or opening to
   reserve more.
+- **Appending copies the value.** `db-append` writes a new record each
+  time, and the heap keeps freed records of the sizes a value passed
+  through: a value grown 1000 bytes at a time to 300 KB leaves about
+  4 MB of heap. Records over 512 bytes take up to 25% more than their
+  size, so freed space fits records of similar size.
 - **B+ tree entries of mixed sizes.** The B+ tree splits a full page by
   entry count, not bytes, so a page of small entries can fail to take a
   large one (issue #4); to be fixed before TreeDB uses it.

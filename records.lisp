@@ -6,12 +6,22 @@
 
 (alexandria:define-constant +record-header-bytes+ 24)
 
+(defun %size-class (n)
+  "N bytes, rounded up above 512 to one of four classes per power of two:
+the heap reuses a freed allocation only for the same size, so classes
+let records of similar size share freed space.  Wastes under 25%."
+  (if (<= n 512)
+      n
+      (let ((step (ash 1 (- (integer-length (1- n)) 3))))
+        (* step (ceiling n step)))))
+
 (defun write-record (heap key value next)
   "Allocate a record holding KEY and VALUE (octets) linked to NEXT;
 return its address."
   (let* ((klen (length key))
          (vlen (length value))
-         (addr (allocate heap (+ +record-header-bytes+ klen vlen))))
+         (addr (allocate heap (%size-class
+                               (+ +record-header-bytes+ klen vlen)))))
     (serialize-uint64 heap next addr)
     (serialize-uint64 heap klen (+ addr 8))
     (serialize-uint64 heap vlen (+ addr 16))
