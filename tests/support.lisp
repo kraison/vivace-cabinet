@@ -90,3 +90,11 @@ TEST-SERIALIZE (vivace-graph used its general serializer here)."
   "BYTES as an octet vector."
   (make-array (length bytes) :element-type '(unsigned-byte 8)
                              :initial-contents bytes))
+
+(defmacro with-temp-db ((var &rest open-args) &body body)
+  "Bind VAR to a new database in a temp directory; close it afterwards."
+  (let ((dir (gensym "DIR")))
+    `(with-temp-directory (,dir)
+       (let ((,var (open-db (merge-pathnames "t.vch/" ,dir) ,@open-args)))
+         (unwind-protect (progn ,@body)
+           (ignore-errors (close-db ,var)))))))

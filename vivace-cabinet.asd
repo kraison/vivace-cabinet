@@ -30,7 +30,9 @@ from vivace-graph's on-disk structures."
                              (:file "skip-list-cursors")
                              (:file "bplus-tree")))
                (:file "murmur3")
-               (:file "records"))
+               (:file "records")
+               (:file "api")
+               (:file "hash-db"))
   :in-order-to ((test-op (test-op "vivace-cabinet/test"))))
 
 (defsystem "vivace-cabinet/test"
@@ -45,7 +47,8 @@ from vivace-graph's on-disk structures."
                (:file "skip-list-tests")
                (:file "bplus-tree-tests")
                (:file "murmur3-tests")
-               (:file "record-tests"))
+               (:file "record-tests")
+               (:file "hash-db-tests"))
   :perform (test-op (o c)
              (unless (uiop:symbol-call
                       :fiveam :run!
