@@ -127,8 +127,8 @@ order; every other match reads every key.
 
 `db-status` returns a plist describing the database. `db-occupy` calls a
 function with the database's path, record count and size while holding
-it. `db-copy` copies the database's files into a new directory, which
-opens as a database of its own. `db-merge` stores other databases'
+it. `db-copy` copies the database's files into a new directory outside
+it, which opens as a database of its own. `db-merge` stores other databases'
 records by `:mode` (`:set`, `:add`, `:replace` or `:append`), one source
 after another, so under `:set` a key in several sources takes the last
 one's value.

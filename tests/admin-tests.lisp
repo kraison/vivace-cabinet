@@ -162,3 +162,10 @@ the number of records it holds."
                           :nop)
                       :writable nil)
           (is (= n (db-count c))))))))
+
+(def-db-test copy-refuses-a-place-inside-the-database
+  "A copy into the database's own directory would copy itself without
+end; it signals INVALID-ARGUMENT."
+  (with-temp-db (db)
+    (signals invalid-argument
+      (db-copy db (merge-pathnames "bak/" (db-path db))))))

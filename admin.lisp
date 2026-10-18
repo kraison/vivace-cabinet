@@ -75,9 +75,14 @@ linear hash's index files are mostly holes."
     (write-byte 0 s)))
 
 (defmethod db-copy ((db database) dest)
-  (let ((to (uiop:ensure-directory-pathname (merge-pathnames dest))))
+  (let ((to (uiop:ensure-directory-pathname (merge-pathnames dest)))
+        (dir (%db-dir db)))
     (when (probe-file to)
       (%signal 'invalid-argument "~a already exists" to))
+    ;; A copy inside the database would copy itself without end.
+    (when (or (uiop:subpathp to dir)
+              (and (probe-file dir) (uiop:subpathp to (truename dir))))
+      (%signal 'invalid-argument "~a is inside the database ~a" to dir))
     (with-write-lock ((%db-lock db))
       (%check-open db)
       (when (%db-writable-p db)
