@@ -48,12 +48,13 @@ by default), `:comparator` (a strict less-than on octet vectors; the
 default, `octets<`, is unsigned byte order) and the heap keywords.
 
 As in Kyoto Cabinet, an operation that fails for an ordinary reason (adding
-a key that exists, removing one that doesn't, writing to a reader) returns
-NIL, and `(db-error db)` says why: `:duplicate-record`, `:no-record` or
-`:no-permission`. Real problems signal `vivace-cabinet-error` subclasses:
-`open-error`, `invalid-argument`, `not-implemented`. `db-check` returns the
-value's size; `db-size` returns the bytes in use, not file sizes (the
-index files are sparse).
+a key that exists, removing one that doesn't, writing to a reader, a
+compare-and-swap that finds another value) returns NIL, and
+`(db-error db)` says why: `:duplicate-record`, `:no-record`,
+`:no-permission` or `:logic`. Real problems signal `vivace-cabinet-error`
+subclasses: `open-error`, `invalid-argument`, `key-too-long`,
+`not-implemented`. `db-check` returns the value's size; `db-size` returns
+the bytes in use, not file sizes (the index files are sparse).
 
 ## Cursors
 
@@ -95,6 +96,13 @@ keeps it, `:remove` removes it, and anything else is the new value.
 atomically for all of them. `:writable nil` visits without changing
 anything, the only kind of visit a reader allows. A visitor runs while
 the database holds its key's lock, so it must not use the database.
+
+`db-cas` stores a new value only when the old one is as given (NIL: the
+key must be absent; a new value of NIL removes the record).
+`db-increment` adds to an 8-byte big-endian integer, and
+`db-increment-double` to a double stored as Kyoto Cabinet stores one
+(the integral part, then the fraction in units of 10^-15, 8 bytes each),
+so the bytes are Kyoto's; `:orig` is an absent key's starting value.
 
 ## Limits
 

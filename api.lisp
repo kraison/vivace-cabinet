@@ -32,8 +32,8 @@
 (defgeneric db-synchronize (db &key hard))
 (defgeneric db-error (db)
   (:documentation "Why the calling thread's last failed operation on DB
-returned NIL: :DUPLICATE-RECORD, :NO-RECORD or :NO-PERMISSION, or
-:SUCCESS if none has failed."))
+returned NIL: :DUPLICATE-RECORD, :NO-RECORD, :NO-PERMISSION or :LOGIC,
+or :SUCCESS if none has failed."))
 
 (defun to-octets (x)
   "X as octets: octet vectors as they are, strings as UTF-8."
@@ -139,3 +139,21 @@ with :NO-PERMISSION for a writable visit on a reader."))
 (defgeneric db-accept-bulk (db keys visitor &key writable as)
   (:documentation "DB-ACCEPT for each of KEYS in order, atomically for
 all of them."))
+
+(defgeneric db-cas (db key old new)
+  (:documentation "Store NEW under KEY if its value is OLD; OLD NIL means
+KEY must be absent, NEW NIL removes the record.  T, or NIL with :LOGIC
+when the value is not OLD."))
+
+(defgeneric db-increment (db key num &key orig)
+  (:documentation "Add NUM to KEY's value, an 8-byte big-endian signed
+integer, and return the result.  An absent key starts at ORIG (0); ORIG
+the most negative 64-bit integer makes an absent key fail, the most
+positive sets the value to NUM.  NIL with :LOGIC when the value is not 8
+bytes, as in Kyoto Cabinet."))
+
+(defgeneric db-increment-double (db key num &key orig)
+  (:documentation "DB-INCREMENT on a double float kept as Kyoto Cabinet
+keeps it: 16 bytes, the integral part and the fraction in units of
+10^-15, each big-endian.  ORIG negative infinity makes an absent key
+fail, positive infinity sets the value to NUM."))
