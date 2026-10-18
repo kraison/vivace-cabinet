@@ -177,3 +177,22 @@ OPEN-HASH-DB."
   (with-read-lock ((%db-lock db))
     (%check-open db)
     (read-memory-pointer (%db-heap db))))
+
+;;; Visiting
+
+(defmethod %key-digest ((db tree-db) key)
+  (murmur3-128 key))
+
+(defmethod %visit ((db tree-db) k d visitor as writable)
+  (declare (ignore d))
+  (let* ((e (tree-db-engine db))
+         (old (engine-get e k))
+         (answer (funcall visitor (from-octets k as)
+                          (and old (from-octets old as)))))
+    (when writable
+      (case answer
+        ((nil :nop))
+        (:remove (when old
+                   (engine-delete e k)))
+        (t (engine-put e k (to-octets answer)))))
+    answer))

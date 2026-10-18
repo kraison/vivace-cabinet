@@ -154,3 +154,13 @@ TEST-SERIALIZE (vivace-graph used its general serializer here)."
   (loop while (cursor-get-key cursor)
         collect (cursor-get-key cursor :as :string)
         while (funcall step cursor)))
+
+(defun finish-within (threads seconds)
+  "Wait up to SECONDS for THREADS to end; destroy any still running.
+True when all ended in time."
+  (loop repeat (* 2 seconds)
+        while (some #'bt:thread-alive-p threads)
+        do (sleep 0.5))
+  (let ((stuck (remove-if-not #'bt:thread-alive-p threads)))
+    (mapc #'bt:destroy-thread stuck)
+    (null stuck)))

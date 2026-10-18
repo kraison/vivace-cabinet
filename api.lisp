@@ -128,3 +128,14 @@ afterwards."
   `(let ((,var (open-db ,path ,@open-args)))
      (unwind-protect (progn ,@body)
        (close-db ,var))))
+
+(defgeneric db-accept (db key visitor &key writable as)
+  (:documentation "Call VISITOR with KEY and its value (NIL if absent)
+and, when WRITABLE (the default), apply its answer: NIL or :NOP keeps
+the record, :REMOVE removes it, anything else is the new value.  The
+visit is atomic for KEY; VISITOR must not use the database.  T, or NIL
+with :NO-PERMISSION for a writable visit on a reader."))
+
+(defgeneric db-accept-bulk (db keys visitor &key writable as)
+  (:documentation "DB-ACCEPT for each of KEYS in order, atomically for
+all of them."))

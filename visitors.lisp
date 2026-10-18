@@ -1,0 +1,39 @@
+;;;; Visitors (spec: API): a function of a key and its value (NIL when
+;;;; absent) that answers :NOP, :REMOVE or a new value.  It runs while
+;;;; the key's stripe, or the whole database, is held, so it must not
+;;;; call the database.
+
+(in-package #:vivace-cabinet)
+
+(defmacro %accepting ((db writable) &body body)
+  "Run BODY, which visits for WRITABLE.  A writable visit on a reader
+fails with :NO-PERMISSION, and one under :AUTOSYNC synchronizes after."
+  `(cond ((not ,writable) ,@body)
+         ((not (%db-writable-p ,db)) (%fail ,db :no-permission))
+         (t (multiple-value-prog1 (progn ,@body)
+              (when (%db-autosync-p ,db)
+                (db-synchronize ,db))))))
+
+(defmethod db-accept ((db database) key visitor &key (writable t)
+                                                     (as :octets))
+  (check-as as)
+  (%accepting (db writable)
+    (let* ((k (to-octets key))
+           (d (%key-digest db k)))
+      (%call-with-stripes db (list d) (if writable :write :read)
+                          (lambda ()
+                            (%visit db k d visitor as writable)))
+      t)))
+
+(defmethod db-accept-bulk ((db database) keys visitor &key (writable t)
+                                                          (as :octets))
+  (check-as as)
+  (%accepting (db writable)
+    (let* ((ks (mapcar #'to-octets keys))
+           (ds (mapcar (lambda (k) (%key-digest db k)) ks)))
+      (%call-with-stripes db ds (if writable :write :read)
+                          (lambda ()
+                            (mapc (lambda (k d)
+                                    (%visit db k d visitor as writable))
+                                  ks ds)))
+      t)))

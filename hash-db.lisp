@@ -238,3 +238,25 @@ File sizes would overstate: the index files are sparse."
       (+ (read-memory-pointer (%db-heap db))
          (* (bucket-count index) (%lhash-bucket-bytes index))
          (read-lhash-next-overflow-pointer index)))))
+
+;;; Visiting
+
+(defmethod %key-digest ((db hash-db) key)
+  (%digest key))
+
+(defmethod %visit ((db hash-db) k d visitor as writable)
+  (multiple-value-bind (addr prev) (%find db d k)
+    (let ((answer (funcall visitor (from-octets k as)
+                           (and addr (from-octets (record-value (%db-heap db)
+                                                                addr)
+                                                  as)))))
+      (when writable
+        (case answer
+          ((nil :nop))
+          (:remove (when addr
+                     (%unlink-record db d addr prev)))
+          (t (let ((v (to-octets answer)))
+               (if addr
+                   (%replace-record db d addr prev k v)
+                   (%insert-record db d k v))))))
+      answer)))

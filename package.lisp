@@ -21,4 +21,5 @@
            #:db-cursor #:with-cursor #:cursor-jump #:cursor-jump-back
            #:cursor-step #:cursor-step-back #:cursor-get #:cursor-get-key
            #:cursor-get-value #:cursor-set-value #:cursor-remove
-           #:cursor-seize))
+           #:cursor-seize
+           #:db-accept #:db-accept-bulk))

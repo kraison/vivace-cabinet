@@ -40,7 +40,8 @@ from vivace-graph's on-disk structures."
                (:file "skip-list-engine")
                (:file "tree-db")
                (:file "tree-cursor")
-               (:file "hash-cursor"))
+               (:file "hash-cursor")
+               (:file "visitors"))
   :in-order-to ((test-op (test-op "vivace-cabinet/test"))))
 
 (defsystem "vivace-cabinet/test"
@@ -62,7 +63,8 @@ from vivace-graph's on-disk structures."
                (:file "tree-db-tests")
                (:file "cursor-tests")
                (:file "hash-cursor-tests")
-               (:file "concurrency-tests"))
+               (:file "concurrency-tests")
+               (:file "visitor-tests"))
   :perform (test-op (o c)
              (unless (uiop:symbol-call
                       :fiveam :run!

@@ -79,6 +79,23 @@ Cabinet: `cursor-jump-back` and `cursor-step-back` signal
 record. It reads the index a bucket at a time, so a record that a
 concurrent writer's bucket split moves can be seen twice or missed.
 
+## Visitors and the rest of the API
+
+    (vivace-cabinet:db-accept
+     db "apple"
+     (lambda (key value)
+       (declare (ignore key))
+       (if value (concatenate 'string value "!") :nop))
+     :as :string)
+
+A visitor is a function of a key and its value (NIL when the key is
+absent) whose answer says what becomes of the record: NIL or `:nop`
+keeps it, `:remove` removes it, and anything else is the new value.
+`db-accept` visits one key, and `db-accept-bulk` a list of keys in order,
+atomically for all of them. `:writable nil` visits without changing
+anything, the only kind of visit a reader allows. A visitor runs while
+the database holds its key's lock, so it must not use the database.
+
 ## Limits
 
 - **No crash safety.** Writes go straight to shared memory maps and reach

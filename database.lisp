@@ -206,9 +206,7 @@ says.  Returns DB."
 
 (defun %stripe (db digest)
   "The stripe lock for a 16-byte DIGEST."
-  (aref (%db-stripes db)
-        (logand (logior (aref digest 0) (ash (aref digest 1) 8))
-                (1- +stripes+))))
+  (aref (%db-stripes db) (%stripe-index digest)))
 
 (defun %check-open (db)
   (unless (%db-open-p db)
@@ -274,3 +272,36 @@ otherwise fail with :NO-PERMISSION."
         (%write-header db :open t)
         t)
       (%fail db :no-permission)))
+
+;;; Visiting records (visitors.lisp builds on these)
+
+(defun %stripe-index (digest)
+  (logand (logior (aref digest 0) (ash (aref digest 1) 8))
+          (1- +stripes+)))
+
+(defun %call-with-stripes (db digests mode fn)
+  "Call FN holding DB's lock shared and the stripes of DIGESTS for MODE
+(:READ or :WRITE), each taken once and in index order, so that calls
+over overlapping keys cannot deadlock."
+  (let ((indexes (sort (remove-duplicates (mapcar #'%stripe-index digests))
+                       #'<)))
+    (with-read-lock ((%db-lock db))
+      (%check-open db)
+      (labels ((take (rest)
+                 (if (null rest)
+                     (funcall fn)
+                     (let ((s (aref (%db-stripes db) (first rest))))
+                       (ecase mode
+                         (:read (with-read-lock (s) (take (rest rest))))
+                         (:write (with-write-lock (s)
+                                   (take (rest rest)))))))))
+        (take indexes)))))
+
+(defgeneric %key-digest (db key)
+  (:documentation "KEY's 16-byte digest, which picks its stripe."))
+
+(defgeneric %visit (db key digest visitor as writable)
+  (:documentation "Call VISITOR with KEY and its value (NIL when absent),
+both decoded AS, and when WRITABLE apply its answer: NIL or :NOP keeps
+the record, :REMOVE removes it, anything else is stored.  The caller
+holds KEY's stripe, or the whole database.  Returns the answer."))
