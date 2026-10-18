@@ -57,25 +57,34 @@ fails with :NO-PERMISSION, and one under :AUTOSYNC synchronizes after."
   ;; The database is held throughout, so the workers read unlocked.
   (with-write-lock ((%db-lock db))
     (%check-open db)
-    (let* ((next (%key-batches db))
-           (lock (make-lock "scan failure"))
-           (failure nil)
-           (workers
-             (loop repeat threads
-                   collect (make-thread
-                            (lambda ()
-                              (handler-case
-                                  (loop for batch = (funcall next)
-                                        while (and batch (not failure))
-                                        do (dolist (k batch)
-                                             (%visit db k (%key-digest db k)
-                                                     visitor as nil)))
-                                (error (c)
-                                  (with-lock-held (lock)
-                                    (unless failure
-                                      (setf failure c))))))
-                            :name "vivace-cabinet scan"))))
-      (mapc #'join-thread workers)
+    (let ((next (%key-batches db))
+          (lock (make-lock "scan failure"))
+          (failure nil)
+          (workers '())
+          (started nil))
+      (flet ((fail (c)
+               (with-lock-held (lock)
+                 (unless failure
+                   (setf failure c))))
+             (work ()
+               (loop for batch = (funcall next)
+                     while (and batch (not failure))
+                     do (dolist (k batch)
+                          (%visit db k (%key-digest db k) visitor as nil)))))
+        ;; Every worker started is joined before the lock is released.
+        (unwind-protect
+             (progn
+               (dotimes (i threads)
+                 (push (make-thread (lambda ()
+                                      (handler-case (work)
+                                        (serious-condition (c) (fail c))))
+                                    :name "vivace-cabinet scan")
+                       workers))
+               (setf started t))
+          (unless started
+            (fail :abandoned))
+          (dolist (w workers)
+            (ignore-errors (join-thread w)))))
       (when failure
         (error failure))
       t)))

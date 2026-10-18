@@ -251,3 +251,17 @@ every lock released."
       (bt:join-thread writer)
       (is (>= written last-visit))
       (is (equal "x" (db-get db "late" :as :string))))))
+
+(define-condition serious-trouble (serious-condition) ())
+
+(def-db-test scan-parallel-passes-on-serious-conditions
+  "A serious condition that is not an error, such as running out of
+stack, reaches the caller too, and the database stays usable."
+  (with-temp-db (db)
+    (dotimes (i 100)
+      (db-set db (keyed i) "v"))
+    (signals serious-trouble
+      (db-scan-parallel db (lambda (k v)
+                             (declare (ignore k v))
+                             (error 'serious-trouble))))
+    (is-true (db-set db "after" "x"))))
