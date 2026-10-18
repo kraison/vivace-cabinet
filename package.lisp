@@ -27,4 +27,8 @@
            #:db-set-bulk #:db-get-bulk #:db-remove-bulk
            #:db-iterate #:db-scan-parallel #:cursor-accept
            #:db-match-prefix #:db-match-regex #:db-match-similar
-           #:db-status #:db-occupy #:db-copy #:db-merge))
+           #:db-status #:db-occupy #:db-copy #:db-merge
+           #:db-dump-snapshot #:db-load-snapshot
+           #:transactions-not-implemented #:db-begin-transaction
+           #:db-begin-transaction-try #:db-end-transaction
+           #:with-transaction))

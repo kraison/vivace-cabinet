@@ -5,11 +5,10 @@ A Kyoto Cabinet-style key-value store in Common Lisp, built from
 structures: a memory-mapped heap, a linear hash, a skip list and a B+ tree.
 The design is in `docs/superpowers/specs/2026-10-16-vivace-cabinet-design.md`.
 
-**Status:** HashDB and TreeDB work (units 2b and 2c): `open-db`,
-`db-set`, `db-get`, `db-add`, `db-replace`, `db-append`, `db-check`,
-`db-seize`, `db-remove`, `db-count`, `db-size`, `db-path`, `db-clear`,
-`db-synchronize`, `db-error`, `close-db`, `with-db`, and cursors. The
-rest of Kyoto's API follows.
+**Status:** HashDB and TreeDB (unit 2) have Kyoto Cabinet's database
+API except transactions: records, cursors, visitors, compare-and-swap
+and increments, bulk operations, matching, status, copying, merging and
+snapshots. Unit 3 benchmarks them against Kyoto Cabinet.
 
 ## Use
 
@@ -53,8 +52,9 @@ compare-and-swap that finds another value) returns NIL, and
 `(db-error db)` says why: `:duplicate-record`, `:no-record`,
 `:no-permission` or `:logic`. Real problems signal `vivace-cabinet-error`
 subclasses: `open-error`, `invalid-argument`, `key-too-long`,
-`not-implemented`. `db-check` returns the value's size; `db-size` returns
-the bytes in use, not file sizes (the index files are sparse).
+`not-implemented` and its subclass `transactions-not-implemented`.
+`db-check` returns the value's size; `db-size` returns the bytes in use,
+not file sizes (the index files are sparse).
 
 ## Cursors
 
@@ -129,6 +129,16 @@ opens as a database of its own. `db-merge` stores other databases'
 records by `:mode` (`:set`, `:add`, `:replace` or `:append`), one source
 after another, so under `:set` a key in several sources takes the last
 one's value.
+
+`db-dump-snapshot` writes every record to one file, and
+`db-load-snapshot` stores a snapshot's records into a database of either
+type. The format is vivace-cabinet's own: 8 magic bytes, then each
+record's key length and value length (8 bytes each, little-endian), key
+and value, and a key length of 2^64-1 at the end.
+
+Version 1 has no transactions: `db-begin-transaction`,
+`db-begin-transaction-try`, `db-end-transaction` and `with-transaction`
+signal `transactions-not-implemented`.
 
 ## Limits
 

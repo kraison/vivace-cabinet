@@ -219,3 +219,36 @@ files stay holes."))
   (:documentation "Store the records of the databases SOURCES into DB,
 one source after another, by MODE: :SET (the default), :ADD, :REPLACE
 or :APPEND, as the operation of that name would."))
+
+(defgeneric db-dump-snapshot (db path)
+  (:documentation "Write every record to the file PATH, in vivace-cabinet's
+own format.  T."))
+
+(defgeneric db-load-snapshot (db path)
+  (:documentation "Store every record in the snapshot file PATH.  T, or
+NIL with :NO-PERMISSION on a reader; a file that is not a whole snapshot
+signals INVALID-ARGUMENT."))
+
+(define-condition transactions-not-implemented (not-implemented) ())
+
+(defgeneric db-begin-transaction (db &key hard)
+  (:documentation "Signals TRANSACTIONS-NOT-IMPLEMENTED: version 1 has no
+transactions (spec: unit 4)."))
+
+(defgeneric db-begin-transaction-try (db &key hard)
+  (:documentation "Signals TRANSACTIONS-NOT-IMPLEMENTED."))
+
+(defgeneric db-end-transaction (db &key commit)
+  (:documentation "Signals TRANSACTIONS-NOT-IMPLEMENTED."))
+
+(defmacro with-transaction ((db &key hard) &body body)
+  "Run BODY in a transaction on DB, committed if BODY returns normally.
+Version 1 signals TRANSACTIONS-NOT-IMPLEMENTED before BODY runs."
+  (let ((d (gensym "DB"))
+        (ok (gensym "OK")))
+    `(let ((,d ,db)
+           (,ok nil))
+       (db-begin-transaction ,d :hard ,hard)
+       (unwind-protect (multiple-value-prog1 (progn ,@body)
+                         (setf ,ok t))
+         (db-end-transaction ,d :commit ,ok)))))
