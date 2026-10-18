@@ -199,3 +199,23 @@ U+FFFD.  A bad REGEX signals INVALID-ARGUMENT."))
   (:documentation "The keys within Levenshtein distance RANGE of ORIGIN,
 nearest first, then in byte order; at most MAX.  UTF compares UTF-8
 characters, else bytes."))
+
+(defgeneric db-status (db)
+  (:documentation "A plist describing DB: :TYPE, :PATH, :COUNT, :SIZE,
+:WRITABLE, :AUTOSYNC, and :BUCKETS (HashDB) or :ENGINE (TreeDB)."))
+
+(defgeneric db-occupy (db fn &key writable)
+  (:documentation "Call FN with DB's path, record count and size while
+holding DB: exclusively when WRITABLE (the default), else shared with
+other operations.  T, or NIL with :LOGIC when FN returns NIL.  FN must
+not use DB."))
+
+(defgeneric db-copy (db dest)
+  (:documentation "Copy DB's files to DEST, a directory that must not
+exist, as a database that opens on its own.  Holes in the index's sparse
+files stay holes."))
+
+(defgeneric db-merge (db sources &key mode)
+  (:documentation "Store the records of the databases SOURCES into DB,
+one source after another, by MODE: :SET (the default), :ADD, :REPLACE
+or :APPEND, as the operation of that name would."))

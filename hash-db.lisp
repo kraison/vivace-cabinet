@@ -229,15 +229,13 @@ chain (NIL at the head); NIL if KEY is absent."
               (progn (%unlink-record db d addr prev) t)
               (%fail db :no-record)))))))
 
-(defmethod db-size ((db hash-db))
+(defmethod %size ((db hash-db))
   "Bytes in use: the heap's extent and the index's buckets and overflow.
 File sizes would overstate: the index files are sparse."
-  (with-read-lock ((%db-lock db))
-    (%check-open db)
-    (let ((index (hash-db-index db)))
-      (+ (read-memory-pointer (%db-heap db))
-         (* (bucket-count index) (%lhash-bucket-bytes index))
-         (read-lhash-next-overflow-pointer index)))))
+  (let ((index (hash-db-index db)))
+    (+ (read-memory-pointer (%db-heap db))
+       (* (bucket-count index) (%lhash-bucket-bytes index))
+       (read-lhash-next-overflow-pointer index))))
 
 ;;; Visiting
 

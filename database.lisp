@@ -318,3 +318,11 @@ record.  The caller holds DB exclusively."
         for batch = (funcall next)
         while batch
         do (mapc fn batch)))
+
+(defgeneric %size (db)
+  (:documentation "DB-SIZE without the lock."))
+
+(defmethod db-size ((db database))
+  (with-read-lock ((%db-lock db))
+    (%check-open db)
+    (%size db)))

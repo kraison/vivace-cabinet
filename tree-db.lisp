@@ -172,11 +172,9 @@ OPEN-HASH-DB."
       (or (engine-delete (tree-db-engine db) k)
           (%fail db :no-record)))))
 
-(defmethod db-size ((db tree-db))
+(defmethod %size ((db tree-db))
   "Bytes the heap has used."
-  (with-read-lock ((%db-lock db))
-    (%check-open db)
-    (read-memory-pointer (%db-heap db))))
+  (read-memory-pointer (%db-heap db)))
 
 ;;; Visiting
 

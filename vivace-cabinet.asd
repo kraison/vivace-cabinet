@@ -44,7 +44,8 @@ from vivace-graph's on-disk structures."
                (:file "visitors")
                (:file "atomic-ops")
                (:file "bulk")
-               (:file "match"))
+               (:file "match")
+               (:file "admin"))
   :in-order-to ((test-op (test-op "vivace-cabinet/test"))))
 
 (defsystem "vivace-cabinet/test"
@@ -70,7 +71,8 @@ from vivace-graph's on-disk structures."
                (:file "visitor-tests")
                (:file "atomic-ops-tests")
                (:file "bulk-tests")
-               (:file "match-tests"))
+               (:file "match-tests")
+               (:file "admin-tests"))
   :perform (test-op (o c)
              (unless (uiop:symbol-call
                       :fiveam :run!

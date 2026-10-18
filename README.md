@@ -122,6 +122,14 @@ keys, at most `:max` of them. On a TreeDB in byte order,
 `db-match-prefix` reads only the matching keys and returns them in
 order; every other match reads every key.
 
+`db-status` returns a plist describing the database. `db-occupy` calls a
+function with the database's path, record count and size while holding
+it. `db-copy` copies the database's files into a new directory, which
+opens as a database of its own. `db-merge` stores other databases'
+records by `:mode` (`:set`, `:add`, `:replace` or `:append`), one source
+after another, so under `:set` a key in several sources takes the last
+one's value.
+
 ## Limits
 
 - **No crash safety.** Writes go straight to shared memory maps and reach
