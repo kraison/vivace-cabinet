@@ -285,3 +285,89 @@ once and takes its run's child with it."
         (dolist (pid (holders db))
           (command-output "kill" "-9" pid))
         (ignore-errors (uiop:wait-process session))))))
+
+(defun holder-lines (path)
+  "\"PID command line\" for each process whose command line holds PATH."
+  (let ((out (command-output "pgrep" "-a" "-f" (namestring path))))
+    (and out (uiop:split-string out :separator '(#\Newline)))))
+
+(defun poisoned-home (dir)
+  "A home directory in DIR whose .sbclrc exits with status 3."
+  (let ((home (merge-pathnames "home/" dir)))
+    (ensure-directories-exist home)
+    (with-open-file (s (merge-pathnames ".sbclrc" home) :direction :output)
+      (write-line "(sb-ext:exit :code 3 :abort t)" s))
+    (format nil "HOME=~a" (uiop:native-namestring home))))
+
+(fiveam:test builds-ignore-the-users-init-file
+  "The SBCL that builds a session's core reads no ~/.sbclrc, which could
+change how the code under test is compiled."
+  (with-scratch (dir)
+    (multiple-value-bind (output m)
+        (measured (sbcl-command "(uiop:quit 0)")
+                  (merge-pathnames "measure.out" dir)
+                  :environment
+                  (list (poisoned-home dir)
+                        (format nil "XDG_CACHE_HOME=~a"
+                                (uiop:native-namestring
+                                 (uiop:xdg-cache-home)))))
+      (fiveam:is (eql 0 (getf m :exit)) "~a" output))))
+
+(fiveam:test core-children-load-nothing
+  "A child started from a session's core reads no init file and loads
+no code: with a ~/.sbclrc that exits and no FASL cache, it still runs."
+  (with-scratch (dir)
+    (let ((core (bench-core dir))
+          (db (prepare-directory (merge-pathnames "db/" dir))))
+      (multiple-value-bind (output m)
+          (measured (lisp-command (list :engine :hash :n 300
+                                        :dir (namestring db))
+                                  core)
+                    (merge-pathnames "measure.out" dir)
+                    :environment (list (poisoned-home dir)
+                                       "XDG_CACHE_HOME=/nonexistent/cache"))
+        (fiveam:is (eql 0 (getf m :exit)) "~a" output)
+        (fiveam:is (eql 300 (getf (read-result output) :count)))))))
+
+(fiveam:test sessions-run-children-from-their-core
+  "A session's Lisp runs, size runs and timed runs alike, start from the
+core it saved when it began, not from the checkout as it is when each
+run starts; the session deletes the core when it ends."
+  (with-scratch (dir)
+    (let* ((data (merge-pathnames "data/" dir))
+           (run (merge-pathnames "run/" data))
+           (core (uiop:native-namestring
+                  (merge-pathnames "bench.core" data)))
+           (session (uiop:launch-program
+                     (sbcl-command
+                      (format nil "(vivace-cabinet-bench::run-matrix ~
+:engines '(:hash) :ns '(50000) :orders '(:sequential) ~
+:tunings '(:default) :threads '(1) :repeats 1 :data #p~s :out #p~s)"
+                              (namestring data)
+                              (namestring (merge-pathnames "out/" dir))))
+                     :output nil :error-output nil))
+           (seen '()))
+      (unwind-protect
+           (progn
+             (loop repeat 6000
+                   while (uiop:process-alive-p session)
+                   do (dolist (l (holder-lines run))
+                        (when (search "vivace-cabinet-bench::child" l)
+                          (pushnew l seen :test #'string=)))
+                      (sleep 0.05))
+             (fiveam:is-true (find-if (lambda (l) (search ":PHASES (:SET)" l))
+                                      seen))
+             (fiveam:is-true (find-if-not
+                              (lambda (l) (search ":PHASES (:SET)" l))
+                              seen))
+             (dolist (l seen)
+               (fiveam:is-true (search (format nil "--core ~a" core) l)
+                               "~a" l))
+             (fiveam:is (null (probe-file core))))
+        (uiop:terminate-process session)
+        (loop repeat 150
+              while (holders run)
+              do (sleep 0.1))
+        (dolist (pid (holders run))
+          (command-output "kill" "-9" pid))
+        (ignore-errors (uiop:wait-process session))))))

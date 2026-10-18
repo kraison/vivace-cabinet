@@ -58,6 +58,7 @@ and a millisecond a record, several times the slowest engine's pace."
            (format nil "(push ~s asdf:*central-registry*)"
                    (namestring (asdf:system-source-directory system)))))
     (list* "sbcl" "--noinform" "--non-interactive"
+           "--no-sysinit" "--no-userinit"
            "--load" (uiop:native-namestring
                      (merge-pathnames "setup.lisp"
                                       (symbol-value
@@ -69,11 +70,33 @@ and a millisecond a record, several times the slowest engine's pace."
            (loop for form in forms
                  nconc (list "--eval" form)))))
 
-(defun lisp-command (spec)
-  "A fresh SBCL that loads the benchmark and runs SPEC, a plist of
-RUN-ORDER's arguments with its :ENGINE."
-  (sbcl-command (with-standard-io-syntax
-                  (format nil "(vivace-cabinet-bench::child '~s)" spec))))
+(defun bench-core (dir)
+  "Save a core holding the benchmark as DIR/bench.core and return its
+pathname.  Children started from it run the code as it was when it was
+saved, whatever happens to the checkout and its FASLs afterwards."
+  (let ((core (merge-pathnames "bench.core" dir)))
+    (uiop:delete-file-if-exists core)
+    (multiple-value-bind (output error-output status)
+        (uiop:run-program (sbcl-command
+                           (format nil "(sb-ext:save-lisp-and-die ~s)"
+                                   (uiop:native-namestring core)))
+                          :output :string :error-output :output
+                          :ignore-error-status t)
+      (declare (ignore error-output))
+      (unless (and (eql 0 status) (probe-file core))
+        (error "No benchmark core in ~a:~%~a" dir output)))
+    core))
+
+(defun lisp-command (spec &optional core)
+  "A fresh SBCL that runs SPEC, a plist of RUN-ORDER's arguments with its
+:ENGINE: started from CORE, BENCH-CORE's, else loading the benchmark."
+  (let ((form (with-standard-io-syntax
+                (format nil "(vivace-cabinet-bench::child '~s)" spec))))
+    (if core
+        (list "sbcl" "--core" (uiop:native-namestring core) "--noinform"
+              "--non-interactive" "--no-sysinit" "--no-userinit"
+              "--eval" form)
+        (sbcl-command form))))
 
 (defun child (spec)
   "In a benchmark child: run SPEC and print RUN-ORDER's plist on a line
@@ -103,7 +126,7 @@ of its own; exit 1 if the run had errors, as Kyoto's programs do."
     (and out (parse-integer out :junk-allowed t))))
 
 (defun run-one (engine &key (n 1000000) (threads 1) random tuned (seed 1)
-                            dir log set-only phases
+                            dir log set-only phases core
                             (timeout (default-timeout n)))
   "One run of ENGINE in its own process on a new database in DIR: the
 phases' seconds and :COUNT, :LEFT and :ERRORS as RUN-ORDER gives them,
@@ -114,7 +137,8 @@ the set phase alone: closing then writes every record, so :SIZE-KB is
 the size holding them (after a full run, Kyoto's TreeDB writes its
 emptied pages only at close).  PHASES chooses a Lisp child's phases.
 After TIMEOUT seconds the run is killed (:EXIT -9, :TIMED-OUT T).  A
-failed child's output goes to LOG."
+Lisp child starts from CORE, BENCH-CORE's, if given.  A failed child's
+output goes to LOG."
   (prepare-directory dir)
   (unwind-protect
        (multiple-value-bind (output m)
@@ -130,7 +154,8 @@ failed child's output goes to LOG."
                                  :random random :tuned tuned :seed seed
                                  :dir (namestring dir)
                                  (cond (set-only (list :phases '(:set)))
-                                       (phases (list :phases phases)))))
+                                       (phases (list :phases phases))))
+                          core)
                          (merge-pathnames "measure.out" dir)
                          :timeout timeout))
          (let ((r (if (native-p engine)

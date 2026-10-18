@@ -61,6 +61,11 @@ thread its own, seeded as Kyoto seeds its own.
   process, on a new database in a new directory under `--data`. On
   btrfs that directory is made `chattr +C`, so its files are neither
   copied on write nor compressed, as database files usually are there.
+- **The code is fixed when the session starts.** The session saves an
+  SBCL core holding the harness as `bench.core` in `--data`, and every
+  Lisp run starts from it, without `~/.sbclrc`. An edit, a branch switch
+  or a recompile in the checkout during the session does not reach its
+  runs. The session deletes the core when it ends.
 - **Threads share the records.** N records over T threads is T threads
   of N/T records each.
 - **Two tunings.** Every engine runs on its defaults, and tuned for N:
@@ -86,7 +91,7 @@ thread its own, seeded as Kyoto seeds its own.
 - **CPU** is, for a Lisp engine, the child's CPU from open to close,
   without loading Lisp. For Kyoto's programs it is the whole process's.
 - **Peak RSS** is the whole process's, from `bench/measure.py`'s
-  `wait4`. A Lisp process's includes SBCL's image, about 120 MB.
+  `wait4`. A Lisp process's includes SBCL's image, about 50 MB.
 - **`count` and `left`** are the records after the set and remove
   phases.
 - **`errors`** are unexpected failures, and **`exit`** is the process's

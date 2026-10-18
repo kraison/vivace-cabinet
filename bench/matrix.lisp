@@ -150,43 +150,50 @@ stopped partway keeps what it finished.  OUT/env.txt records the
 environment, and OUT/failures.log the output of any run that failed.
 Repeats are outermost, so each configuration's runs spread over the
 session.  A run is killed after TIMEOUT seconds, by default
-DEFAULT-TIMEOUT's for its N.  Returns OUT."
+DEFAULT-TIMEOUT's for its N.  Lisp runs start from a core saved in
+DATA when the session begins (BENCH-CORE).  Returns OUT."
   (let* ((out (uiop:ensure-directory-pathname out))
-         (dir (merge-pathnames "run/"
-                               (uiop:ensure-directory-pathname data)))
+         (data (uiop:ensure-directory-pathname data))
+         (dir (merge-pathnames "run/" data))
          (log (merge-pathnames "failures.log" out))
          (configs (configurations engines ns orders tunings)))
     (ensure-directories-exist out)
     (ensure-directories-exist dir)
-    (write-environment (merge-pathnames "env.txt" out) data)
-    (loop for (engine n order tuning) in configs
-          do (append-row (merge-pathnames "sizes.csv" out)
-                         (list* :engine engine :tuning tuning :order order
-                                :n n
-                                (guarded-run log engine :n n
-                                             :random (eq order :random)
-                                             :tuned (eq tuning :tuned)
-                                             :seed seed :dir dir
-                                             :set-only t
-                                             :timeout (or timeout
-                                                          (default-timeout
-                                                           n))))
-                         *size-columns*))
-    (dotimes (repeat repeats out)
-      (loop for (engine n order tuning) in configs
-            do (dolist (th threads)
-                 (let ((run-seed (+ seed repeat)))
-                   (append-row
-                    (merge-pathnames "runs.csv" out)
-                    (list* :machine (machine-instance)
-                           :started (timestamp)
-                           :engine engine :tuning tuning :order order
-                           :n n :threads th :repeat (1+ repeat)
-                           :seed run-seed
-                           (guarded-run log engine :n n :threads th
-                                        :random (eq order :random)
-                                        :tuned (eq tuning :tuned)
-                                        :seed run-seed :dir dir
-                                        :timeout (or timeout
-                                                     (default-timeout n))))
-                    *columns*)))))))
+    (let ((core (bench-core data)))
+      (unwind-protect
+           (progn
+             (write-environment (merge-pathnames "env.txt" out) data)
+             (loop for (engine n order tuning) in configs
+                   do (append-row
+                       (merge-pathnames "sizes.csv" out)
+                       (list* :engine engine :tuning tuning :order order
+                              :n n
+                              (guarded-run log engine :n n
+                                           :random (eq order :random)
+                                           :tuned (eq tuning :tuned)
+                                           :seed seed :dir dir :core core
+                                           :set-only t
+                                           :timeout (or timeout
+                                                        (default-timeout
+                                                         n))))
+                       *size-columns*))
+             (dotimes (repeat repeats out)
+               (loop for (engine n order tuning) in configs
+                     do (dolist (th threads)
+                          (let ((run-seed (+ seed repeat)))
+                            (append-row
+                             (merge-pathnames "runs.csv" out)
+                             (list* :machine (machine-instance)
+                                    :started (timestamp)
+                                    :engine engine :tuning tuning
+                                    :order order :n n :threads th
+                                    :repeat (1+ repeat) :seed run-seed
+                                    (guarded-run
+                                     log engine :n n :threads th
+                                     :random (eq order :random)
+                                     :tuned (eq tuning :tuned)
+                                     :seed run-seed :dir dir :core core
+                                     :timeout (or timeout
+                                                  (default-timeout n))))
+                             *columns*))))))
+        (uiop:delete-file-if-exists core)))))
