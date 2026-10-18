@@ -164,3 +164,41 @@ on defaults only."
       (fiveam:is (= 100 (getf r :errors)) "~s" r)
       (fiveam:is (= 1 (getf r :exit)) "~s" r)
       (fiveam:is-true (probe-file log)))))
+
+(fiveam:test interrupted-sessions-keep-their-rows
+  "A session stopped partway, as by Ctrl-C, keeps the rows it wrote."
+  (with-scratch (dir)
+    (let* ((out (merge-pathnames "out/" dir))
+           (csv (merge-pathnames "runs.csv" out))
+           (worker (bt:make-thread
+                    (lambda ()
+                      (run-matrix :engines '(:kyoto-hash-native) :ns '(200)
+                                  :threads '(1) :orders '(:sequential)
+                                  :tunings '(:default) :repeats 50
+                                  :data (merge-pathnames "data/" dir)
+                                  :out out)))))
+      (loop repeat 600
+            until (and (probe-file csv) (<= 2 (length (read-runs csv))))
+            do (sleep 0.1))
+      (bt:destroy-thread worker)
+      (ignore-errors (bt:join-thread worker))
+      (sleep 0.5)
+      (fiveam:is-true (probe-file csv))
+      (fiveam:is (<= 2 (length (and (probe-file csv) (read-runs csv))))))))
+
+(fiveam:test reports-skip-a-truncated-row
+  "A row cut short, as when power is lost mid-write, is left out."
+  (with-scratch (dir)
+    (with-open-file (s (merge-pathnames "runs.csv" dir) :direction :output)
+      (write-header s *columns*)
+      (write-row s (list :machine "m" :engine :hash :tuning :default
+                         :order :sequential :n 1000 :threads 1 :repeat 1
+                         :open 0.1 :set 0.1 :get 0.1 :remove 0.1
+                         :close 0.1 :cpu 0.5 :rss-kb 1024 :count 1000
+                         :left 0 :errors 0 :exit 0)
+                 *columns*)
+      (format s "m,2026-10-18T00:00:00Z,hash,default,seq"))
+    (with-open-file (s (merge-pathnames "env.txt" dir) :direction :output)
+      (format s "machine: m~%"))
+    (fiveam:is (= 1 (length (read-runs (merge-pathnames "runs.csv" dir)))))
+    (fiveam:is-true (probe-file (write-report dir)))))

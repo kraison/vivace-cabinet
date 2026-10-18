@@ -30,6 +30,17 @@
           (mapcar (lambda (c) (csv-cell (getf row c))) columns))
   (finish-output stream))
 
+(defun append-row (path row columns)
+  "Append ROW to the CSV file PATH, after a header of COLUMNS if PATH is
+new.  Each row opens and closes the file: a stream left open over a
+session would, when Ctrl-C or a kill unwinds it, close with :ABORT, and
+SBCL deletes a superseded file then."
+  (unless (probe-file path)
+    (with-open-file (s path :direction :output :if-does-not-exist :create)
+      (write-header s columns)))
+  (with-open-file (s path :direction :output :if-exists :append)
+    (write-row s row columns)))
+
 (defun timestamp ()
   (multiple-value-bind (s mi h d mo y) (decode-universal-time
                                         (get-universal-time) 0)
@@ -123,7 +134,8 @@ tuning knob on defaults only."
                         (data (default-data-directory)) out (seed 1))
   "Run every configuration on each of THREADS, REPEATS times, into
 OUT/runs.csv, a row per run as it ends; first, one set-only run per
-configuration into OUT/sizes.csv.  OUT/env.txt records the
+configuration into OUT/sizes.csv.  Rows are appended, so a session
+stopped partway keeps what it finished.  OUT/env.txt records the
 environment, and OUT/failures.log the output of any run that failed.
 Repeats are outermost, so each configuration's runs spread over the
 session.  Returns OUT."
@@ -135,34 +147,30 @@ session.  Returns OUT."
     (ensure-directories-exist out)
     (ensure-directories-exist dir)
     (write-environment (merge-pathnames "env.txt" out) data)
-    (with-open-file (s (merge-pathnames "sizes.csv" out)
-                       :direction :output :if-exists :supersede)
-      (write-header s *size-columns*)
+    (loop for (engine n order tuning) in configs
+          do (append-row (merge-pathnames "sizes.csv" out)
+                         (list* :engine engine :tuning tuning :order order
+                                :n n
+                                (run-one engine :n n
+                                                :random (eq order :random)
+                                                :tuned (eq tuning :tuned)
+                                                :seed seed :dir dir
+                                                :log log :set-only t))
+                         *size-columns*))
+    (dotimes (repeat repeats out)
       (loop for (engine n order tuning) in configs
-            do (write-row s (list* :engine engine :tuning tuning
-                                   :order order :n n
-                                   (run-one engine :n n
-                                                   :random (eq order :random)
-                                                   :tuned (eq tuning :tuned)
-                                                   :seed seed :dir dir
-                                                   :log log :set-only t))
-                          *size-columns*)))
-    (with-open-file (s (merge-pathnames "runs.csv" out)
-                       :direction :output :if-exists :supersede)
-      (write-header s *columns*)
-      (dotimes (repeat repeats out)
-        (loop for (engine n order tuning) in configs
-              do (dolist (th threads)
-                   (let ((run-seed (+ seed repeat)))
-                     (write-row
-                      s (list* :machine (machine-instance)
-                               :started (timestamp)
-                               :engine engine :tuning tuning :order order
-                               :n n :threads th :repeat (1+ repeat)
-                               :seed run-seed
-                               (run-one engine :n n :threads th
-                                               :random (eq order :random)
-                                               :tuned (eq tuning :tuned)
-                                               :seed run-seed :dir dir
-                                               :log log))
-                      *columns*))))))))
+            do (dolist (th threads)
+                 (let ((run-seed (+ seed repeat)))
+                   (append-row
+                    (merge-pathnames "runs.csv" out)
+                    (list* :machine (machine-instance)
+                           :started (timestamp)
+                           :engine engine :tuning tuning :order order
+                           :n n :threads th :repeat (1+ repeat)
+                           :seed run-seed
+                           (run-one engine :n n :threads th
+                                           :random (eq order :random)
+                                           :tuned (eq tuning :tuned)
+                                           :seed run-seed :dir dir
+                                           :log log))
+                    *columns*)))))))

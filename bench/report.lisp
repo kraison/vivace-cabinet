@@ -25,7 +25,8 @@
         (t s)))
 
 (defun read-runs (csv)
-  "The rows of CSV, each a plist keyed by its column."
+  "The rows of CSV, each a plist keyed by its column.  A row with too
+few cells, cut short when a session was killed, is left out."
   (let* ((lines (remove "" (uiop:read-file-lines csv) :test #'string=))
          (columns (mapcar (lambda (h)
                             (intern (string-upcase (substitute #\- #\_ h))
@@ -33,10 +34,11 @@
                           (uiop:split-string (first lines)
                                              :separator '(#\,)))))
     (loop for line in (rest lines)
-          collect (loop for c in columns
-                        for cell in (uiop:split-string line
-                                                       :separator '(#\,))
-                        nconc (list c (parse-cell cell))))))
+          for cells = (uiop:split-string line :separator '(#\,))
+          when (= (length cells) (length columns))
+            collect (loop for c in columns
+                          for cell in cells
+                          nconc (list c (parse-cell cell))))))
 
 (defun read-environment (path)
   (loop for line in (uiop:read-file-lines path)
