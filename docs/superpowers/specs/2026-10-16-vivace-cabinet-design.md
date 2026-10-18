@@ -195,18 +195,29 @@ It mirrors Kyoto's `BasicDB` and `Cursor` in CLOS. Names take a `db-` or
 
 ### Workload
 
-Kyoto's `order` test, as run by `kchashtest order` and `kctreetest order`:
-for N records, keys are 8-byte zero-padded decimals (`"00000001"`, ...) and
-each value equals its key. Three timed phases run in turn: set, get, remove.
-Before writing the harness, check these details against Kyoto's test source
-or documentation and correct this section if they differ.
+Kyoto's `order` test, as run by `kchashtest order` and `kctreetest order`
+(checked against both programs' source in Kyoto Cabinet 1.2.80, where the
+two run the same workload):
+
+- Keys are 8-byte zero-padded decimals (`"00000001"`, ...) and each value
+  equals its key.
+- Timed phases run in turn: open, set, get, remove, close.
+- With `-th T`, *each* thread does `rnum` records, thread `i` taking keys
+  `i*rnum + 1` to `(i+1)*rnum`. N records over T threads are therefore run
+  as `-th T` with `rnum` = N/T.
+- `-rnd` does more than change the order. Each key is drawn at random from
+  1 to `rnum*T`, so keys repeat and some are never set. After every eighth
+  record, each phase also does one more operation on that key, chosen at
+  random: a set, an append, a remove or a cursor read (1/8 each), or a get
+  (1/2).
+- The Lisp harness repeats this workload exactly, extra operations
+  included, so that rows 1 and 2 below are comparable.
 
 The matrix:
 
 - order: sequential and random (Kyoto's `-rnd`);
 - N: 1,000,000 and 10,000,000;
-- threads: 1, 4 and 8, with the records divided among threads as Kyoto's
-  `-th` does.
+- threads: 1, 4 and 8, with the N records divided among the threads.
 
 ### Engines
 
