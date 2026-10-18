@@ -50,6 +50,34 @@ from vivace-graph's on-disk structures."
                (:file "transactions"))
   :in-order-to ((test-op (test-op "vivace-cabinet/test"))))
 
+(defsystem "vivace-cabinet/kyoto"
+  :description "Kyoto Cabinet behind vivace-cabinet's API, through
+cl-kyoto-cabinet."
+  :depends-on ("vivace-cabinet" "cl-kyoto-cabinet" "cffi" "bordeaux-threads")
+  :pathname "kyoto/"
+  :serial t
+  :components ((:file "package")
+               (:file "ffi")
+               (:file "db")
+               (:file "cursor")))
+
+(defsystem "vivace-cabinet/conformance"
+  :description "Random operation sequences on vivace-cabinet and Kyoto
+Cabinet, compared step by step."
+  :depends-on ("vivace-cabinet" "vivace-cabinet/kyoto" "fiveam" "alexandria"
+               "uiop")
+  :pathname "conformance/"
+  :serial t
+  :components ((:file "package")
+               (:file "support")
+               (:file "adapter-tests"))
+  :perform (test-op (o c)
+             (unless (uiop:symbol-call
+                      :fiveam :run!
+                      (uiop:find-symbol* :conformance-suite
+                                         :vivace-cabinet-conformance))
+               (error "conformance tests failed"))))
+
 (defsystem "vivace-cabinet/test"
   :description "FiveAM tests for vivace-cabinet."
   :depends-on ("vivace-cabinet" "fiveam" "babel" "uiop")

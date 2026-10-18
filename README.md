@@ -144,6 +144,25 @@ Version 1 has no transactions: `db-begin-transaction`,
 `db-begin-transaction-try`, `db-end-transaction` and `with-transaction`
 signal `transactions-not-implemented`.
 
+## Kyoto Cabinet behind the same API
+
+The `vivace-cabinet/kyoto` system opens a Kyoto Cabinet database and
+answers vivace-cabinet's generic functions for it. It goes through
+[cl-kyoto-cabinet](https://github.com/kraison/cl-kyoto-cabinet), which
+needs Kyoto Cabinet 1.2.80's library:
+
+    (let ((db (vivace-cabinet-kyoto:open-kyoto-db "/var/data/words.kct")))
+      (vivace-cabinet:db-set db "apple" "red")
+      (vivace-cabinet:close-db db))
+
+The file's extension picks the type (`.kch` HashDB, `.kct` TreeDB).
+`:mode` takes vivace-cabinet's modes, and `:tuning` Kyoto's tuning
+parameters, as in `'(:bnum 2000000)`. It covers the record operations,
+increments, compare-and-swap, bulk operations, matching, `db-count`,
+`db-size`, `db-clear` and cursors, with Kyoto's reasons from `db-error`.
+Kyoto's match calls pass keys as C strings, so a key holding a zero byte
+does not match. The conformance check and the benchmark use it.
+
 ## Limits
 
 - **No crash safety.** Writes go straight to shared memory maps and reach

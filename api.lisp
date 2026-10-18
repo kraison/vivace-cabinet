@@ -122,10 +122,18 @@ the removed key and value."))
 (defun cursor-get-value (cursor &key (as :octets))
   (nth-value 1 (cursor-get cursor :as as)))
 
+(defgeneric %release-cursor (cursor)
+  (:documentation "Free what CURSOR holds outside Lisp; WITH-CURSOR
+calls it.")
+  (:method (cursor)
+    (declare (ignore cursor))
+    nil))
+
 (defmacro with-cursor ((var db) &body body)
-  "Evaluate BODY with VAR bound to a new cursor on DB."
+  "Evaluate BODY with VAR bound to a new cursor on DB, released after."
   `(let ((,var (db-cursor ,db)))
-     ,@body))
+     (unwind-protect (progn ,@body)
+       (%release-cursor ,var))))
 
 (defmacro with-db ((var path &rest open-args) &body body)
   "Evaluate BODY with VAR bound to the open database at PATH; close it
