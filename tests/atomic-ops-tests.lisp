@@ -72,3 +72,33 @@ for a value of another size."
         (is (eq :no-permission (db-error db)))
         (is (= 3 (db-increment db "n" 0 :orig (- (expt 2 63)))))
         (is (null (db-cas db "n" nil "x")))))))
+
+(def-db-test double-increments-match-kyotos-bytes
+  "Results and bytes from Kyoto Cabinet 1.2.80 on x86-64, which computes
+the fraction in long double."
+  (with-temp-db (db)
+    (flet ((bytes-are (key &rest bytes)
+             (is (equalp (apply #'octets-of bytes) (db-get db key))
+                 "~a" key)))
+      (is (= 0.3d0 (db-increment-double db "a" 0.3d0)))
+      (bytes-are "a" 0 0 0 0 0 0 0 0 0 1 #x10 #xd9 #x31 #x6e #xbf #xff)
+      (db-increment-double db "b" 0.7d0)
+      (is (= 1.299999999999998d0 (db-increment-double db "b" 0.6d0)))
+      (bytes-are "b" 0 0 0 0 0 0 0 1 0 1 #x10 #xd9 #x31 #x6e #xbf #xfe)
+      (db-increment-double db "c" -0.3d0)
+      (bytes-are "c" 0 0 0 0 0 0 0 0
+                 #xff #xfe #xef #x26 #xce #x91 #x40 #x01)
+      (is (= 10.1d0 (db-increment-double db "h" 0.1d0 :orig 10)))
+      (bytes-are "h" 0 0 0 0 0 0 0 #x0a 0 0 #x5a #xf3 #x10 #x7a #x3f #xff))))
+
+(def-db-test double-increments-past-64-bits-follow-kyoto
+  "An integral part past 64 bits is stored as the most negative integer,
+which reads back as negative infinity; a sum past 64 bits wraps."
+  (with-temp-db (db)
+    (is (= 1d19 (db-increment-double db "e" 1d19)))
+    (is (equalp (octets-of #x80 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0)
+                (db-get db "e")))
+    (is (= sb-ext:double-float-negative-infinity
+           (db-increment-double db "e" 1)))
+    (db-increment-double db "g" 9d18)
+    (is (= -4.4674407370955162d17 (db-increment-double db "g" 9d18)))))

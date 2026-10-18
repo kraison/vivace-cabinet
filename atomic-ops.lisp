@@ -76,14 +76,36 @@
 (defun %nan-p (x) (sb-ext:float-nan-p x))
 (defun %inf-p (x) (sb-ext:float-infinity-p x))
 
+;;; Kyoto computes the fraction in x87 long double (64-bit significand),
+;;; so on x86-64 its bytes are these; elsewhere they differ.
+
+(defun %long-double (r)
+  "The rational R rounded to a 64-bit significand, half to even."
+  (if (zerop r)
+      0
+      (let* ((a (abs r))
+             (e (- (integer-length (numerator a))
+                   (integer-length (denominator a))))
+             (e (if (< a (expt 2 e)) (1- e) e))
+             (scale (expt 2 (- 63 e))))
+        (* (signum r) (/ (round (* a scale)) scale)))))
+
+(defun %x87-int64 (r)
+  "R truncated to a signed 64-bit integer as x86-64 converts a long
+double: the most negative integer when it is out of range."
+  (let ((i (truncate r)))
+    (if (typep i '(signed-byte 64)) i +int64-min+)))
+
 (defun %split-double (x)
-  "X's integral part and its fraction in units of 10^-15, truncated
-toward zero as C's modf does; NaN gives both the most negative 64-bit
-integer, an infinity the most positive or negative and 0."
+  "X's integral part and its fraction in units of 10^-15, as Kyoto
+computes them (kcdb.h: increment_double); NaN gives both the most
+negative 64-bit integer, an infinity the most positive or negative
+and 0."
   (cond ((%nan-p x) (values +int64-min+ +int64-min+))
         ((%inf-p x) (values (if (plusp x) +int64-max+ +int64-min+) 0))
-        (t (multiple-value-bind (integ frac) (truncate x)
-             (values (%int64 integ) (truncate (* frac +decunit+)))))))
+        (t (multiple-value-bind (integ frac) (truncate (rational x))
+             (values (%x87-int64 integ)
+                     (truncate (%long-double (* frac +decunit+))))))))
 
 (defun %fixed-octets (integ fract)
   (concatenate 'octets (%int64-octets integ) (%int64-octets fract)))

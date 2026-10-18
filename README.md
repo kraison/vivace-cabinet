@@ -101,8 +101,10 @@ the database holds its key's lock, so it must not use the database.
 key must be absent; a new value of NIL removes the record).
 `db-increment` adds to an 8-byte big-endian integer, and
 `db-increment-double` to a double stored as Kyoto Cabinet stores one
-(the integral part, then the fraction in units of 10^-15, 8 bytes each),
-so the bytes are Kyoto's; `:orig` is an absent key's starting value.
+(the integral part, then the fraction in units of 10^-15, 8 bytes each,
+with the fraction rounded as Kyoto's x87 long double arithmetic rounds
+it), so the bytes are those Kyoto writes on x86-64; `:orig` is an absent
+key's starting value.
 
 `db-set-bulk` stores an alist of keys and values (a key given twice
 takes its last value) and returns how many it stored; `db-get-bulk`
