@@ -27,10 +27,17 @@
       (fiveam:is (zerop (db-count db))))))
 
 (fiveam:test adapter-releases-cursors
-  "WITH-CURSOR deletes Kyoto's cursor; CLOSE-DB deletes any left."
+  "WITH-CURSOR deletes Kyoto's cursor; CLOSE-DB deletes any left, which
+then signal instead of reaching freed memory."
   (with-kyoto (db "c.kch")
     (with-cursor (c db)
       (cursor-jump c))
     (fiveam:is (null (vivace-cabinet-kyoto::%kdb-cursors db)))
-    (db-cursor db)
-    (fiveam:is (= 1 (length (vivace-cabinet-kyoto::%kdb-cursors db))))))
+    (let ((left (db-cursor db)))
+      (fiveam:is (= 1 (length (vivace-cabinet-kyoto::%kdb-cursors db))))
+      (close-db db)
+      (fiveam:is (null (vivace-cabinet-kyoto::%kdb-cursors db)))
+      (fiveam:is (null (vivace-cabinet-kyoto::%kc-ptr left)))
+      ;; Only when released: a live one would reach freed memory.
+      (when (null (vivace-cabinet-kyoto::%kc-ptr left))
+        (fiveam:signals invalid-argument (cursor-jump left))))))
