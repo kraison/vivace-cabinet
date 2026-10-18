@@ -23,4 +23,5 @@
            #:cursor-get-value #:cursor-set-value #:cursor-remove
            #:cursor-seize
            #:db-accept #:db-accept-bulk
-           #:db-cas #:db-increment #:db-increment-double))
+           #:db-cas #:db-increment #:db-increment-double
+           #:db-set-bulk #:db-get-bulk #:db-remove-bulk))

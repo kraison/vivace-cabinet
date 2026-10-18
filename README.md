@@ -104,6 +104,11 @@ key must be absent; a new value of NIL removes the record).
 (the integral part, then the fraction in units of 10^-15, 8 bytes each),
 so the bytes are Kyoto's; `:orig` is an absent key's starting value.
 
+`db-set-bulk` stores an alist of keys and values (a key given twice
+takes its last value) and returns how many it stored; `db-get-bulk`
+returns an alist of the keys it finds; `db-remove-bulk` returns how many
+it removed. Each is atomic unless given `:atomic nil`.
+
 ## Limits
 
 - **No crash safety.** Writes go straight to shared memory maps and reach

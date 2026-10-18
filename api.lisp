@@ -157,3 +157,15 @@ bytes, as in Kyoto Cabinet."))
 keeps it: 16 bytes, the integral part and the fraction in units of
 10^-15, each big-endian.  ORIG negative infinity makes an absent key
 fail, positive infinity sets the value to NUM."))
+
+(defgeneric db-set-bulk (db records &key atomic)
+  (:documentation "Store RECORDS, an alist of (key . value); a key given
+twice takes its last value.  The number of keys stored, or NIL.  ATOMIC
+(the default) stores them all at once."))
+
+(defgeneric db-get-bulk (db keys &key atomic as)
+  (:documentation "An alist of (key . value) for those of KEYS that are
+present, in the order asked."))
+
+(defgeneric db-remove-bulk (db keys &key atomic)
+  (:documentation "Remove KEYS; the number removed, or NIL."))
