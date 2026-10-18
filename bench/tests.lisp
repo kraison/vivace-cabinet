@@ -95,15 +95,18 @@ it; a failed run is left out and said so."
   (with-scratch (dir)
     (with-open-file (s (merge-pathnames "runs.csv" dir) :direction :output)
       (write-header s *columns*)
-      (loop for (engine set exit) in '((:hash 1 0) (:hash 2 0) (:hash 5 0)
-                                       (:bplus-tree 1 0) (:bplus-tree 1 1))
+      (loop for (engine set errors exit) in '((:hash 1 0 0) (:hash 2 0 0)
+                                              (:hash 5 0 0)
+                                              (:bplus-tree 1 0 0)
+                                              (:bplus-tree 1 0 1)
+                                              (:bplus-tree 1 3 0))
             for repeat from 1
             do (write-row s (list :machine "m" :engine engine
                                   :tuning :default :order :sequential
                                   :n 1000000 :threads 1 :repeat repeat
                                   :open 0.5 :set set :get 1 :remove 1
                                   :close 0.5 :cpu 3 :rss-kb 2048
-                                  :count 1000000 :left 0 :errors 0
+                                  :count 1000000 :left 0 :errors errors
                                   :exit exit)
                           *columns*)))
     (with-open-file (s (merge-pathnames "sizes.csv" dir) :direction :output)
@@ -119,7 +122,7 @@ it; a failed run is left out and said so."
 3.0 | 2 | 3.0 |")
                          text)
                  "~a" text)
-      (fiveam:is (search "1 of 2 runs failed" text) "~a" text))))
+      (fiveam:is (search "2 of 3 runs failed" text) "~a" text))))
 
 (fiveam:test matrix-writes-a-row-per-run
   "A row per run and per size run; an engine without a tuning knob runs
@@ -139,3 +142,25 @@ on defaults only."
                                             (eq :tuned (getf r :tuning))))
                            runs))
         (fiveam:is (probe-file (write-report out)))))))
+
+(defclass lying-db () ()
+  (:documentation "A database whose every get returns the wrong value."))
+
+(defmethod db-get ((db lying-db) key &key as)
+  (declare (ignore key as))
+  (coerce #(122 122) '(simple-array (unsigned-byte 8) (*))))
+
+(fiveam:test get-phase-checks-values
+  "As in Kyoto's test, a get that returns another value is an error."
+  (fiveam:is (= 10 (phase-work (make-instance 'lying-db) :get 0 10 1 nil
+                               (make-rng 1)))))
+
+(fiveam:test failing-runs-say-so
+  "A Lisp child whose run has errors exits 1, and its output is logged."
+  (with-scratch (dir)
+    (let* ((log (merge-pathnames "failures.log" dir))
+           (r (run-one :hash :n 100 :dir (merge-pathnames "db/" dir)
+                             :log log :phases '(:get))))
+      (fiveam:is (= 100 (getf r :errors)) "~s" r)
+      (fiveam:is (= 1 (getf r :exit)) "~s" r)
+      (fiveam:is-true (probe-file log)))))

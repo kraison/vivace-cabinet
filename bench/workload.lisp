@@ -141,7 +141,13 @@ of unexpected failures."
                                       (+ base i)))))
                (unless (ecase phase
                          (:set (db-set db k k))
-                         (:get (or (db-get db k) random))
+                         (:get (let ((v (db-get db k)))
+                                 ;; Kyoto checks the value begins with K.
+                                 (if v
+                                     (and (>= (length v) (length k))
+                                          (not (mismatch k v
+                                                         :end2 (length k))))
+                                     random)))
                          (:remove (or (db-remove db k) random)))
                  (incf errors))
                (when (and random (zerop (mod i 8)) (extra-op db k rng))

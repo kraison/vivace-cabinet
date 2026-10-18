@@ -55,14 +55,15 @@ RUN-ORDER's arguments with its :ENGINE."
 
 (defun child (spec)
   "In a benchmark child: run SPEC and print RUN-ORDER's plist on a line
-of its own."
+of its own; exit 1 if the run had errors, as Kyoto's programs do."
   (let ((r (apply #'run-order (getf spec :engine)
                   :dir (uiop:ensure-directory-pathname (getf spec :dir))
                   (alexandria:remove-from-plist spec :engine :dir))))
     (with-standard-io-syntax
       (let ((*read-default-float-format* 'double-float))
         (format t "~&RESULT ~s~%" r)))
-    (finish-output)))
+    (finish-output)
+    (uiop:quit (if (eql 0 (getf r :errors)) 0 1))))
 
 (defun read-result (output)
   "The plist a child printed in OUTPUT, or NIL."
@@ -80,7 +81,7 @@ of its own."
     (and out (parse-integer out :junk-allowed t))))
 
 (defun run-one (engine &key (n 1000000) (threads 1) random tuned (seed 1)
-                            dir log set-only)
+                            dir log set-only phases)
   "One run of ENGINE in its own process on a new database in DIR: the
 phases' seconds and :COUNT, :LEFT and :ERRORS as RUN-ORDER gives them,
 :CPU seconds (the child's own count over the phases for a Lisp engine;
@@ -88,7 +89,8 @@ the whole process for Kyoto's programs), :RSS-KB at the process's peak,
 :SIZE-KB of the database after it closed, and :EXIT.  SET-ONLY runs
 the set phase alone: closing then writes every record, so :SIZE-KB is
 the size holding them (after a full run, Kyoto's TreeDB writes its
-emptied pages only at close).  A failed child's output goes to LOG."
+emptied pages only at close).  PHASES chooses a Lisp child's phases.
+A failed child's output goes to LOG."
   (prepare-directory dir)
   (unwind-protect
        (multiple-value-bind (output m)
@@ -101,7 +103,8 @@ emptied pages only at close).  A failed child's output goes to LOG."
                           (list* :engine engine :n n :threads threads
                                  :random random :tuned tuned :seed seed
                                  :dir (namestring dir)
-                                 (and set-only (list :phases '(:set)))))))
+                                 (cond (set-only (list :phases '(:set)))
+                                       (phases (list :phases phases)))))))
          (let ((r (if (native-p engine)
                       (parse-native-output output)
                       (read-result output))))
