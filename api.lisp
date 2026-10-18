@@ -227,7 +227,8 @@ or :APPEND, as the operation of that name would."))
 
 (defgeneric db-dump-snapshot (db path)
   (:documentation "Write every record to the file PATH, in vivace-cabinet's
-own format.  T."))
+own format, through PATH.tmp: a dump that fails leaves PATH as it was.
+T."))
 
 (defgeneric db-load-snapshot (db path)
   (:documentation "Store every record in the snapshot file PATH.  T, or

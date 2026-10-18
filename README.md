@@ -135,7 +135,8 @@ one's value.
 
 `db-dump-snapshot` writes every record to one file, and
 `db-load-snapshot` stores a snapshot's records into a database of either
-type. The format is vivace-cabinet's own: 8 magic bytes, then each
+type. A dump goes through `PATH.tmp`, so one that fails leaves the
+snapshot already at `PATH` as it was. The format is vivace-cabinet's own: 8 magic bytes, then each
 record's key length and value length (8 bytes each, little-endian), key
 and value, and a key length of 2^64-1 at the end.
 

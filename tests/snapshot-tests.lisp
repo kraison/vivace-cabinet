@@ -58,3 +58,32 @@ any kind brings them all back."
     (signals transactions-not-implemented (db-end-transaction db))
     (signals not-implemented (with-transaction (db) (db-set db "k" "v")))
     (is (null (db-get db "k")))))
+
+(defun file-octets (path)
+  (with-open-file (in path :element-type '(unsigned-byte 8))
+    (let ((v (make-array (file-length in) :element-type '(unsigned-byte 8))))
+      (read-sequence v in)
+      v)))
+
+(def-db-test failed-dumps-keep-the-old-snapshot
+  "A dump that succeeds replaces the file at its path; one that fails
+leaves it as it was, and no temporary file behind."
+  (with-temp-directory (dir)
+    (let ((file (merge-pathnames "keep" dir))
+          (db (open-test-db (merge-pathnames "s.vc/" dir))))
+      (unwind-protect
+           (progn
+             (db-set db "k" "v")
+             (is-true (db-dump-snapshot db file))
+             (let ((one (file-octets file)))
+               (db-set db "k2" "v2")
+               (is-true (db-dump-snapshot db file))
+               (let ((two (file-octets file)))
+                 (is (not (equalp one two)))
+                 (close-db db)
+                 (signals vivace-cabinet-error (db-dump-snapshot db file))
+                 (is (equalp two (file-octets file)))
+                 (is (equal '("keep")
+                            (mapcar #'file-namestring
+                                    (uiop:directory-files dir)))))))
+        (ignore-errors (close-db db))))))

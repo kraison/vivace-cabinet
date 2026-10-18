@@ -23,18 +23,31 @@
 (defun %read-u64 (in path)
   (%get-u64 (%read-octets in 8 path) 0))
 
+(defun %rename-over (from to)
+  "Rename file FROM to TO, replacing TO.  rename(2), since RENAME-FILE
+fills a missing type in TO from FROM."
+  (unless (zerop (cffi:foreign-funcall
+                  "rename" :string (uiop:native-namestring from)
+                  :string (uiop:native-namestring to) :int))
+    (%signal 'vivace-cabinet-error "cannot rename ~a to ~a" from to)))
+
 (defmethod db-dump-snapshot ((db database) path)
-  (with-open-file (out path :direction :output :if-exists :supersede
-                            :element-type '(unsigned-byte 8))
-    (write-sequence +snapshot-magic+ out)
-    (db-iterate db (lambda (k v)
-                     (%write-u64 (length k) out)
-                     (%write-u64 (length v) out)
-                     (write-sequence k out)
-                     (write-sequence v out)
-                     :nop)
-                :writable nil)
-    (%write-u64 +snapshot-end+ out)
+  (let* ((to (merge-pathnames path))
+         (tmp (uiop:parse-native-namestring
+               (concatenate 'string (uiop:native-namestring to) ".tmp"))))
+    ;; A failed dump deletes the new TMP and leaves TO as it was.
+    (with-open-file (out tmp :direction :output :if-exists :supersede
+                             :element-type '(unsigned-byte 8))
+      (write-sequence +snapshot-magic+ out)
+      (db-iterate db (lambda (k v)
+                       (%write-u64 (length k) out)
+                       (%write-u64 (length v) out)
+                       (write-sequence k out)
+                       (write-sequence v out)
+                       :nop)
+                  :writable nil)
+      (%write-u64 +snapshot-end+ out))
+    (%rename-over tmp to)
     t))
 
 (defmethod db-load-snapshot ((db database) path)
