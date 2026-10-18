@@ -89,11 +89,38 @@ fails with :NO-PERMISSION, and one under :AUTOSYNC synchronizes after."
         (error failure))
       t)))
 
+(defun %cursor-edit (c visit &key (writable t))
+  "Visit C's current record with VISIT, a function of its key and value
+as octets that answers as a visitor does; retried if another thread
+removes the record first.  The record's (values key value), or NIL with
+the reason."
+  (let ((db (%cursor-db c)))
+    (loop
+      (let ((k (%cursor-current c))
+            (old nil))
+        (unless k
+          (return (%fail db :no-record)))
+        (unless (db-accept db k (lambda (key v)
+                                  (if (setf old v)
+                                      (funcall visit key v)
+                                      :nop))
+                           :writable writable)
+          (return nil))
+        (when old
+          (return (values k old)))))))
+
 (defmethod cursor-accept (cursor visitor &key (writable t) step
                                               (as :octets))
-  (let ((k (cursor-get-key cursor)))
-    (and k
-         (db-accept (%cursor-db cursor) k visitor :writable writable :as as)
-         (progn (when step
-                  (cursor-step cursor))
+  (check-as as)
+  (let ((removed nil))
+    (and (%cursor-edit cursor
+                       (lambda (k v)
+                         (let ((answer (funcall visitor (from-octets k as)
+                                                (from-octets v as))))
+                           (when (eq answer :remove)
+                             (setf removed k))
+                           answer))
+                       :writable writable)
+         (progn (cond (removed (%cursor-pass cursor removed))
+                      (step (cursor-step cursor)))
                 t))))

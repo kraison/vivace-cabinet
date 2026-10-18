@@ -9,7 +9,8 @@
   ((db :initarg :db :reader %hc-db)
    (bucket :initform -1 :accessor %hc-bucket)
    (pending :initform nil :accessor %hc-pending)
-   (key :initform nil :accessor %hc-key)))
+   (key :initform nil :accessor %hc-key)
+   (clears :initform 0 :accessor %hc-clears)))
 
 (defmethod db-cursor ((db hash-db))
   (make-instance 'hash-cursor :db db))
@@ -60,6 +61,7 @@ holds the database lock."
 
 (defmethod cursor-jump ((c hash-cursor) &optional key)
   (%with-hash-cursor (db c)
+    (setf (%hc-clears c) (%db-clears db))
     (if (null key)
         (progn (setf (%hc-bucket c) -1
                      (%hc-pending c) nil)
@@ -79,52 +81,58 @@ holds the database lock."
                 t)
               (%fail db :no-record))))))
 
-(defmethod cursor-step ((c hash-cursor))
+(defmethod %cursor-current ((c hash-cursor))
   (%with-hash-cursor (db c)
-    (if (and (%hc-key c) (%hc-advance c))
-        t
-        (%fail db :no-record))))
-
-(defmethod cursor-get ((c hash-cursor) &key (as :octets))
-  (check-as as)
-  (%with-hash-cursor (db c)
+    (when (/= (%hc-clears c) (%db-clears db))
+      (setf (%hc-key c) nil))
     (loop
       (let ((k (%hc-key c)))
         (unless k
-          (return (%fail db :no-record)))
+          (return nil))
         (let* ((d (%digest k))
                (v (with-read-lock ((%stripe db d))
                     (let ((addr (%find db d k)))
                       (and addr (record-value (%db-heap db) addr))))))
           (when v
-            (return (values (from-octets k as) (from-octets v as))))
+            (return (values k v)))
           (%hc-advance c))))))
 
-(defmethod cursor-set-value ((c hash-cursor) value)
-  (if (%hc-key c)
-      (db-replace (%hc-db c) (%hc-key c) value)
-      (%fail (%hc-db c) :no-record)))
-
-(defun %hc-next (c)
+(defmethod %cursor-pass ((c hash-cursor) key)
+  (declare (ignore key))
   (%with-hash-cursor (db c)
     (%hc-advance c)))
 
+(defmethod cursor-step ((c hash-cursor))
+  (if (and (%cursor-current c)
+           (%with-hash-cursor (db c)
+             (%hc-advance c)))
+      t
+      (%fail (%hc-db c) :no-record)))
+
+(defmethod cursor-get ((c hash-cursor) &key (as :octets))
+  (check-as as)
+  (multiple-value-bind (k v) (%cursor-current c)
+    (if k
+        (values (from-octets k as) (from-octets v as))
+        (%fail (%hc-db c) :no-record))))
+
+(defmethod cursor-set-value ((c hash-cursor) value)
+  (let ((v (to-octets value)))
+    (and (%cursor-edit c (lambda (k old)
+                           (declare (ignore k old))
+                           v))
+         t)))
+
 (defmethod cursor-remove ((c hash-cursor))
-  (let ((k (%hc-key c)))
-    (cond ((null k) (%fail (%hc-db c) :no-record))
-          ((db-remove (%hc-db c) k)
-           (%hc-next c)
-           t))))
+  (let ((k (%cursor-edit c (constantly :remove))))
+    (and k (progn (%cursor-pass c k) t))))
 
 (defmethod cursor-seize ((c hash-cursor) &key (as :octets))
   (check-as as)
-  (let ((k (%hc-key c)))
-    (if (null k)
-        (%fail (%hc-db c) :no-record)
-        (let ((v (db-seize (%hc-db c) k)))
-          (when v
-            (%hc-next c)
-            (values (from-octets k as) (from-octets v as)))))))
+  (multiple-value-bind (k v) (%cursor-edit c (constantly :remove))
+    (when k
+      (%cursor-pass c k)
+      (values (from-octets k as) (from-octets v as)))))
 
 (defmethod cursor-jump-back ((c hash-cursor) &optional key)
   (declare (ignore key))

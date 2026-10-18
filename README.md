@@ -70,10 +70,15 @@ a key; `cursor-step` and `cursor-step-back` move one record.
 `cursor-get` returns the current key and value (`cursor-get-key` and
 `cursor-get-value` one of them), `cursor-set-value` replaces the value,
 and `cursor-remove` and `cursor-seize` remove the record and move to the
-next. A move past either end returns NIL with `:no-record`. A TreeDB
-cursor holds its position as a key, so other threads' changes leave it
-valid; if its record is removed, it reads the next one. Give each thread
-its own cursor.
+next (after a backward move, to the previous). A move past either end
+returns NIL with `:no-record`. Cursors behave as Kyoto Cabinet's do. If
+another call removes a cursor's record, the cursor's next read, edit or
+step acts on the record after it, whichever way the cursor last moved,
+so a backward walk can read a record twice while other threads remove
+records. `db-clear` leaves every cursor on no record until it jumps
+again. A TreeDB cursor holds its position as a key, so other threads'
+changes leave it valid. Give each thread its own cursor; `with-cursor`
+releases its cursor when its body exits.
 
 A HashDB cursor moves forward only, in no useful order, as in Kyoto
 Cabinet: `cursor-jump-back` and `cursor-step-back` signal

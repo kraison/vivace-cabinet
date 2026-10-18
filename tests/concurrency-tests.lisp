@@ -17,15 +17,16 @@ v's, or v's alone (appended to an absent key)."
              (vs (subseq v (1+ (length key))))))))
 
 (defun stress-walk-ok-p (db forward)
-  "Walk DB one way; true when the keys come strictly in order."
+  "Walk DB one way; true when a forward walk's keys come strictly in
+order.  A backward walk's need not: as in Kyoto, a cursor whose record
+another thread removes reads the next one."
   (with-cursor (cur db)
     (let ((prev nil)
           (ok t))
       (when (if forward (cursor-jump cur) (cursor-jump-back cur))
         (loop
           (let ((k (cursor-get-key cur :as :string)))
-            (when (and k prev
-                       (if forward (string<= k prev) (string<= prev k)))
+            (when (and k prev forward (string<= k prev))
               (setf ok nil))
             (when k
               (setf prev k)))

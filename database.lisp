@@ -28,6 +28,7 @@
    (errors-lock :initform (make-lock "database errors")
                 :reader %db-errors-lock)
    (open-p :initform nil :accessor %db-open-p)
+   (clears :initform 0 :accessor %db-clears)
    (lock-fd :initform nil :accessor %db-lock-fd)))
 
 ;;; What each type supplies
@@ -270,6 +271,8 @@ otherwise fail with :NO-PERMISSION."
         (%delete-storage (%db-dir db))
         (%create-storage db)
         (%write-header db :open t)
+        ;; Cursors positioned before a clear are invalid, as in Kyoto.
+        (incf (%db-clears db))
         t)
       (%fail db :no-permission)))
 

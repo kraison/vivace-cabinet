@@ -37,7 +37,8 @@ the last at or before it."
 
 (def-tree-test cursor-edits-records
   "SET-VALUE, REMOVE and SEIZE act on the current record; REMOVE and
-SEIZE move to the next."
+SEIZE move to the next, or after a backward move to the previous, as
+Kyoto's do."
   (with-temp-db (db)
     (dotimes (i 10)
       (db-set db (keyed i) "v"))
@@ -54,8 +55,12 @@ SEIZE move to the next."
       (is (= 8 (db-count db)))
       (cursor-jump-back cur)
       (is-true (cursor-remove cur))
+      (is (equal (keyed 8) (cursor-get-key cur :as :string)))
+      (is (= 7 (db-count db)))
+      (cursor-jump cur (keyed 8))
+      (is-true (cursor-remove cur))
       (is (null (cursor-get-key cur)))
-      (is (= 7 (db-count db))))))
+      (is (= 6 (db-count db))))))
 
 (def-tree-test cursor-follows-removal-by-others
   "When something else removes the current record, the cursor reads the
@@ -103,16 +108,30 @@ next one."
       (is (equal '("c" "b" "a") (cursor-walk cur #'cursor-step))))))
 
 (def-tree-test cursor-follows-removal-backward
-  "Moving backward, a cursor whose record is removed reads the previous
-one, not the next."
+  "Moving backward too, a cursor whose record is removed reads the next
+one, as Kyoto's does; stepping back then goes below it."
   (with-temp-db (db)
     (dotimes (i 5)
       (db-set db (keyed i) "v"))
     (with-cursor (cur db)
       (cursor-jump-back cur (keyed 3))
       (db-remove db (keyed 3))
-      (is (equal (keyed 2) (cursor-get-key cur :as :string)))
+      (is (equal (keyed 4) (cursor-get-key cur :as :string)))
       (is-true (cursor-step-back cur))
-      (is (equal (keyed 1) (cursor-get-key cur :as :string)))
+      (is (equal (keyed 2) (cursor-get-key cur :as :string))))))
+
+(def-tree-test cursor-moves-on-from-removed-records
+  "After another call removes the current record, the cursor's edits
+and steps act on the next record, as Kyoto's do."
+  (with-temp-db (db)
+    (dotimes (i 6)
+      (db-set db (keyed i) "v"))
+    (with-cursor (cur db)
+      (cursor-jump cur (keyed 1))
       (db-remove db (keyed 1))
-      (is (equal (keyed 0) (cursor-get-key cur :as :string))))))
+      (is-true (cursor-set-value cur "x"))
+      (is (equal "x" (db-get db (keyed 2) :as :string)))
+      (cursor-jump cur (keyed 3))
+      (db-remove db (keyed 3))
+      (is-true (cursor-step cur))
+      (is (equal (keyed 5) (cursor-get-key cur :as :string))))))

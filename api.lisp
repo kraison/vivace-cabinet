@@ -199,6 +199,14 @@ when STEP.  T, or NIL with :NO-RECORD when the cursor is on none."))
 
 (defgeneric %cursor-db (cursor))
 
+(defgeneric %cursor-current (cursor)
+  (:documentation "Move CURSOR past removed records to its current one:
+(values key value) as octets, or NIL when it is on none."))
+
+(defgeneric %cursor-pass (cursor key)
+  (:documentation "Move CURSOR on from KEY, its record just removed, as
+Kyoto's cursors move after a removal."))
+
 (defgeneric db-match-prefix (db prefix &key max as)
   (:documentation "The keys that begin with PREFIX, at most MAX of them;
 in key order on a TreeDB."))

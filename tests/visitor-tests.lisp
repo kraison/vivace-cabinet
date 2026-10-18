@@ -265,3 +265,67 @@ stack, reaches the caller too, and the database stays usable."
                              (declare (ignore k v))
                              (error 'serious-trouble))))
     (is-true (db-set db "after" "x"))))
+
+(def-db-test cursor-edits-reach-a-record-after-removal
+  "An edit through a cursor whose record another call removed acts on a
+record that is still there."
+  (with-temp-db (db)
+    (dotimes (i 6)
+      (db-set db (keyed i) "v"))
+    (with-cursor (cur db)
+      (cursor-jump cur (keyed 1))
+      (db-remove db (keyed 1))
+      (is-true (cursor-set-value cur "x"))
+      (is (= 1 (count "x" (loop for i below 6
+                                collect (db-get db (keyed i) :as :string))
+                      :test #'equal)))
+      (is-true (cursor-remove cur))
+      (is (= 4 (db-count db))))))
+
+(def-db-test cursor-accept-never-visits-a-removed-record
+  "While another thread sets and removes the same keys, CURSOR-ACCEPT
+never calls its visitor with NIL: an answer for a removed record would
+recreate it."
+  (with-temp-db (db)
+    (let ((stop nil)
+          (nils 0)
+          (errors '()))
+      (let ((churn (bt:make-thread
+                    (lambda ()
+                      (handler-case
+                          (loop for i from 0
+                                until stop
+                                do (let ((k (keyed (mod i 8))))
+                                     (if (evenp (floor i 8))
+                                         (db-set db k "v")
+                                         (db-remove db k))))
+                        (error (c)
+                          (push (princ-to-string c) errors)))))))
+        (unwind-protect
+             (with-cursor (cur db)
+               (dotimes (i 20000)
+                 (when (cursor-jump cur (keyed (mod i 8)))
+                   (cursor-accept cur (lambda (k v)
+                                        (declare (ignore k))
+                                        (unless v
+                                          (incf nils))
+                                        :nop)))))
+          (setf stop t)
+          (bt:join-thread churn))
+        (is (null errors) "~s" errors)
+        (is (zerop nils) "~d visits of NIL" nils)))))
+
+(def-db-test cursor-is-nowhere-after-clear
+  "DB-CLEAR leaves every cursor on no record, as in Kyoto, until it
+jumps again."
+  (with-temp-db (db)
+    (db-set db (keyed 0) "v")
+    (with-cursor (cur db)
+      (cursor-jump cur)
+      (db-clear db)
+      (db-set db (keyed 0) "w")
+      (is (null (cursor-get-key cur)))
+      (is (eq :no-record (db-error db)))
+      (is (null (cursor-step cur)))
+      (is-true (cursor-jump cur))
+      (is (equal "w" (cursor-get-value cur :as :string))))))
