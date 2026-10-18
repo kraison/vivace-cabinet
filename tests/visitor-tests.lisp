@@ -223,3 +223,31 @@ every lock released."
                        (error "boom"))))
     (is-true (db-set db "after" "x"))
     (is (= 11 (db-count db)))))
+
+(def-db-test scan-parallel-holds-the-database
+  "A write started during a parallel scan lands only after it."
+  (with-temp-db (db)
+    (dotimes (i 50)
+      (db-set db (keyed i) "v"))
+    (let ((lock (bt:make-lock))
+          (writer nil)
+          (last-visit 0)
+          (written 0))
+      (db-scan-parallel
+       db (lambda (k v)
+            (declare (ignore k v))
+            (bt:with-lock-held (lock)
+              (unless writer
+                (setf writer
+                      (bt:make-thread
+                       (lambda ()
+                         (db-set db "late" "x")
+                         (setf written (get-internal-real-time)))))))
+            (sleep 0.01)
+            (bt:with-lock-held (lock)
+              (setf last-visit (get-internal-real-time)))
+            :nop)
+       :threads 2)
+      (bt:join-thread writer)
+      (is (>= written last-visit))
+      (is (equal "x" (db-get db "late" :as :string))))))

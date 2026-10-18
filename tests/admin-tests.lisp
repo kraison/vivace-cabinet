@@ -98,3 +98,53 @@
       (with-db (tr (merge-pathnames "t.vct/" dir) :type :tree)
         (is-true (db-merge tr (list h)))
         (is (equal '("a" "b" "c") (db-match-prefix tr "" :as :string)))))))
+
+(def-db-test occupy-holds-the-database
+  "A write started inside a writable DB-OCCUPY lands only after it."
+  (with-temp-db (db)
+    (let ((writer nil)
+          (inside 0)
+          (written 0))
+      (is-true (db-occupy db (lambda (path count size)
+                               (declare (ignore path count size))
+                               (setf writer
+                                     (bt:make-thread
+                                      (lambda ()
+                                        (db-set db "late" "x")
+                                        (setf written
+                                              (get-internal-real-time)))))
+                               (sleep 0.3)
+                               (setf inside (get-internal-real-time))
+                               t)))
+      (bt:join-thread writer)
+      (is (>= written inside))
+      (is (equal "x" (db-get db "late" :as :string))))))
+
+(def-db-test copy-holds-the-database
+  "Other threads' writes wait while DB-COPY runs, so the copy's count is
+the number of records it holds."
+  (with-temp-directory (dir)
+    (let ((copy (merge-pathnames "c.vc/" dir))
+          (stop nil))
+      (with-test-db (db (merge-pathnames "o.vc/" dir))
+        (let ((writers
+                (loop for w below 2
+                      collect (let ((w w))
+                                (bt:make-thread
+                                 (lambda ()
+                                   (loop for i from 0
+                                         until stop
+                                         do (db-set db (format nil "~d-~d" w i)
+                                                    "v"))))))))
+          (sleep 0.2)
+          (unwind-protect (db-copy db copy)
+            (setf stop t)
+            (mapc #'bt:join-thread writers))))
+      (with-db (c copy)
+        (let ((n 0))
+          (db-iterate c (lambda (k v)
+                          (declare (ignore k v))
+                          (incf n)
+                          :nop)
+                      :writable nil)
+          (is (= n (db-count c))))))))
