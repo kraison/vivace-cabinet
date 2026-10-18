@@ -6,7 +6,7 @@
 
 ;;; Kyoto's random numbers (cmdcommon.h, myrand): xorshift on 64-bit
 ;;; words.  Kyoto's test shares one generator among its threads; here
-;;; each thread has its own, seeded as Kyoto's mysrand seeds.
+;;; each thread has its own (THREAD-RNGS), set up as Kyoto's mysrand.
 
 (defstruct (rng (:constructor %make-rng (x)))
   (x 0 :type (unsigned-byte 64))
@@ -180,6 +180,13 @@ does: in the calling thread when there is one.  Unexpected failures."
                   do (error r)
                 sum r)))))
 
+(defun thread-rngs (seed threads)
+  "Each thread's generator for a run on SEED: thread 0's is SEED's, as
+Kyoto seeds its own; thread I's starts from SEED + 1000003I, so runs on
+nearby seeds share no stream."
+  (loop for id below threads
+        collect (make-rng (+ seed (* id 1000003)))))
+
 (defun seconds-since (start)
   (/ (float (- (get-internal-real-time) start) 1d0)
      internal-time-units-per-second))
@@ -192,7 +199,7 @@ records divided among THREADS.  A plist: each phase's seconds, :CPU
 seconds over them, :COUNT after the set phase, :LEFT after the remove
 phase, and :ERRORS, the unexpected failures."
   (let* ((rnum (max 1 (floor n threads)))
-         (rngs (loop for id below threads collect (make-rng (+ seed id))))
+         (rngs (thread-rngs seed threads))
          (cpu (get-internal-run-time))
          (result '())
          (db nil))

@@ -23,6 +23,16 @@ compiled and run)."
     (fiveam:is (equal '(843145 662182 733804 671905 787782 90793)
                       (loop repeat 6 collect (myrand r 1000000))))))
 
+(fiveam:test repeats-share-no-generator
+  "Repeat R runs on seed R, yet no thread of any repeat draws the same
+numbers as another's: here five repeats of eight threads."
+  (flet ((draws (rng)
+           (loop repeat 8 collect (myrand rng 1000000))))
+    (let ((streams (loop for seed from 1 to 5
+                         nconc (mapcar #'draws (thread-rngs seed 8)))))
+      (fiveam:is (= 40 (length (remove-duplicates streams
+                                                  :test #'equal)))))))
+
 (fiveam:test keys-are-kyotos
   "Keys as Kyoto's order test prints them, %08lld."
   (flet ((k (n) (map 'string #'code-char (key-octets n))))

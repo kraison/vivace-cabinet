@@ -41,7 +41,8 @@ The port is faithful: with one thread and one seed, every engine ends
 each phase with the same records as Kyoto's own program
 (`port-matches-kyotos-own-test`). One difference: Kyoto's test shares
 one random generator among its threads, while the port gives each
-thread its own, seeded as Kyoto seeds its own.
+thread its own: thread 0 on the run's seed, as Kyoto seeds its own, and
+thread i on the seed plus 1,000,003 i, so no two runs share a stream.
 
 ## Engines
 
