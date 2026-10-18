@@ -16,16 +16,18 @@ NIL when it fails."
                 (uiop:run-program command :output :string
                                           :error-output nil))))
 
-(defun measured (command out &key environment)
+(defun measured (command out &key environment timeout)
   "Run COMMAND under measure.py, which writes its numbers to the file
-OUT: (values COMMAND's output, a plist of :WALL, :USER and :SYSTEM
-seconds, :RSS-KB at its peak and :EXIT)."
+OUT and kills COMMAND after TIMEOUT seconds: (values COMMAND's output,
+a plist of :WALL, :USER and :SYSTEM seconds, :RSS-KB at its peak,
+:EXIT, and :TIMED-OUT)."
   (let ((output (uiop:run-program
                  (append (and environment (cons "env" environment))
                          (list "python3"
                                (uiop:native-namestring
                                 (bench-file "measure.py"))
-                               (uiop:native-namestring out))
+                               (uiop:native-namestring out)
+                               (princ-to-string (or timeout 0)))
                          command)
                  :output :string :error-output :output
                  :ignore-error-status t)))
@@ -33,7 +35,13 @@ seconds, :RSS-KB at its peak and :EXIT)."
             (with-open-file (in out)
               (let ((*read-default-float-format* 'double-float))
                 (list :wall (read in) :user (read in) :system (read in)
-                      :rss-kb (read in) :exit (read in)))))))
+                      :rss-kb (read in) :exit (read in)
+                      :timed-out (eql 1 (read in))))))))
+
+(defun default-timeout (n)
+  "Seconds a run of N records may take before it is killed: ten minutes
+and a millisecond a record, several times the slowest engine's pace."
+  (+ 600 (ceiling n 1000)))
 
 (defun lisp-command (spec)
   "A fresh SBCL that loads the benchmark and runs SPEC, a plist of
@@ -81,7 +89,8 @@ of its own; exit 1 if the run had errors, as Kyoto's programs do."
     (and out (parse-integer out :junk-allowed t))))
 
 (defun run-one (engine &key (n 1000000) (threads 1) random tuned (seed 1)
-                            dir log set-only phases)
+                            dir log set-only phases
+                            (timeout (default-timeout n)))
   "One run of ENGINE in its own process on a new database in DIR: the
 phases' seconds and :COUNT, :LEFT and :ERRORS as RUN-ORDER gives them,
 :CPU seconds (the child's own count over the phases for a Lisp engine;
@@ -90,7 +99,8 @@ the whole process for Kyoto's programs), :RSS-KB at the process's peak,
 the set phase alone: closing then writes every record, so :SIZE-KB is
 the size holding them (after a full run, Kyoto's TreeDB writes its
 emptied pages only at close).  PHASES chooses a Lisp child's phases.
-A failed child's output goes to LOG."
+After TIMEOUT seconds the run is killed (:EXIT -9, :TIMED-OUT T).  A
+failed child's output goes to LOG."
   (prepare-directory dir)
   (unwind-protect
        (multiple-value-bind (output m)
@@ -98,6 +108,7 @@ A failed child's output goes to LOG."
                (measured (native-command engine dir n threads random tuned
                                          set-only)
                          (merge-pathnames "measure.out" dir)
+                         :timeout timeout
                          :environment (list (format nil "KCRNDSEED=~d"
                                                     seed)))
                (measured (lisp-command
@@ -106,7 +117,8 @@ A failed child's output goes to LOG."
                                  :dir (namestring dir)
                                  (cond (set-only (list :phases '(:set)))
                                        (phases (list :phases phases)))))
-                         (merge-pathnames "measure.out" dir)))
+                         (merge-pathnames "measure.out" dir)
+                         :timeout timeout))
          (let ((r (if (native-p engine)
                       (parse-native-output output)
                       (read-result output))))
@@ -121,7 +133,8 @@ A failed child's output goes to LOG."
                                   (getf r :cpu))
                          :rss-kb (getf m :rss-kb)
                          :size-kb (du-kb (engine-path engine dir))
-                         :exit (getf m :exit))
+                         :exit (getf m :exit)
+                         :timed-out (getf m :timed-out))
                    (alexandria:remove-from-plist r :cpu))))
     (uiop:delete-directory-tree dir :validate t
                                     :if-does-not-exist :ignore)))

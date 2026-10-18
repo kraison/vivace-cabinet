@@ -1,6 +1,7 @@
 #!/bin/bash
 # bench/run.sh [--quick] [--out DIR] [--data DIR] [--repeats N]
 #              [--n "N ..."] [--threads "T ..."] [--engines "E ..."]
+#              [--timeout SECONDS]
 # Run benchmark round 1 and write its report: docs/benchmarks/README.md.
 # Needs SBCL with Quicklisp, Kyoto Cabinet 1.2.80, python3, and
 # cl-kyoto-cabinet in $CL_KYOTO_CABINET (default ~/work/cl-kyoto-cabinet).
@@ -13,6 +14,7 @@ while [ $# -gt 0 ]; do
     --out) args="$args :out \"$2\""; shift ;;
     --data) args="$args :data \"$2\""; shift ;;
     --repeats) args="$args :repeats $2"; shift ;;
+    --timeout) args="$args :timeout $2"; shift ;;
     --n) args="$args :ns '($2)"; shift ;;
     --threads) args="$args :threads '($2)"; shift ;;
     --engines) args="$args :engines '($(echo "$2" | sed -E 's/([a-z-]+)/:\1/g'))"; shift ;;

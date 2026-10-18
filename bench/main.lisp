@@ -6,12 +6,12 @@
   (asdf:system-relative-pathname :vivace-cabinet
                                  (format nil "bench/results/~a/" name)))
 
-(defun main (&key quick out data repeats ns threads engines)
+(defun main (&key quick out data repeats ns threads engines timeout)
   "Run the matrix and write its report.  QUICK runs a small matrix that
 checks the harness in a few minutes, into a temporary directory;
 otherwise the spec's matrix goes to bench/results/MACHINE-DATE/ and its
 report to docs/benchmarks/round-1.md.  The other keywords override the
-matrix's parts."
+matrix's parts; TIMEOUT is each run's limit in seconds."
   (let* ((stamp (remove-if-not #'alphanumericp
                                (subseq (timestamp) 0 16)))
          (out (or (and out (uiop:ensure-directory-pathname out))
@@ -26,6 +26,7 @@ matrix's parts."
                           :repeats (or repeats (if quick 2 5))
                           :engines (or engines *engines*)
                           :data (or data (default-data-directory))
+                          :timeout timeout
                           :out out))
          (report (if quick
                      (merge-pathnames "report.md" out)

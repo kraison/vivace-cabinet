@@ -221,3 +221,18 @@ failed row and the session goes on."
                           exits)
                    "~s" exits))
       (fiveam:is-true (probe-file (merge-pathnames "failures.log" out))))))
+
+(fiveam:test runs-stop-at-their-timeout
+  "A run still going at its timeout is killed, with its threads and any
+child of its own, and reported as timed out."
+  (with-scratch (dir)
+    (let* ((start (get-internal-real-time))
+           (r (run-one :hash :n 5000000 :dir (merge-pathnames "db/" dir)
+                             :timeout 3))
+           (seconds (/ (- (get-internal-real-time) start)
+                       internal-time-units-per-second)))
+      (fiveam:is (eql -9 (getf r :exit)) "~s" r)
+      (fiveam:is-true (getf r :timed-out))
+      (fiveam:is (< seconds 30) "~,1f s" seconds)
+      (fiveam:is (null (command-output "pgrep" "-f"
+                                       (namestring dir)))))))

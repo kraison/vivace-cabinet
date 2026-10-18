@@ -6,7 +6,7 @@
 (defparameter *columns*
   '(:machine :started :engine :tuning :order :n :threads :repeat :seed
     :open :set :get :remove :close :cpu :rss-kb :count :left :errors
-    :exit)
+    :exit :timed-out)
   "runs.csv's columns, in order: one row per run.")
 
 (defparameter *size-columns*
@@ -141,14 +141,16 @@ tuning knob on defaults only."
 (defun run-matrix (&key (engines *engines*) (ns '(1000000 10000000))
                         (threads '(1 4 8)) (orders '(:sequential :random))
                         (tunings '(:default :tuned)) (repeats 5)
-                        (data (default-data-directory)) out (seed 1))
+                        (data (default-data-directory)) out (seed 1)
+                        timeout)
   "Run every configuration on each of THREADS, REPEATS times, into
 OUT/runs.csv, a row per run as it ends; first, one set-only run per
 configuration into OUT/sizes.csv.  Rows are appended, so a session
 stopped partway keeps what it finished.  OUT/env.txt records the
 environment, and OUT/failures.log the output of any run that failed.
 Repeats are outermost, so each configuration's runs spread over the
-session.  Returns OUT."
+session.  A run is killed after TIMEOUT seconds, by default
+DEFAULT-TIMEOUT's for its N.  Returns OUT."
   (let* ((out (uiop:ensure-directory-pathname out))
          (dir (merge-pathnames "run/"
                                (uiop:ensure-directory-pathname data)))
@@ -165,7 +167,10 @@ session.  Returns OUT."
                                              :random (eq order :random)
                                              :tuned (eq tuning :tuned)
                                              :seed seed :dir dir
-                                             :set-only t))
+                                             :set-only t
+                                             :timeout (or timeout
+                                                          (default-timeout
+                                                           n))))
                          *size-columns*))
     (dotimes (repeat repeats out)
       (loop for (engine n order tuning) in configs
@@ -181,5 +186,7 @@ session.  Returns OUT."
                            (guarded-run log engine :n n :threads th
                                         :random (eq order :random)
                                         :tuned (eq tuning :tuned)
-                                        :seed run-seed :dir dir))
+                                        :seed run-seed :dir dir
+                                        :timeout (or timeout
+                                                     (default-timeout n))))
                     *columns*)))))))
