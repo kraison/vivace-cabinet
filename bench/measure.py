@@ -10,7 +10,13 @@ import time
 
 out, cmd = sys.argv[1], sys.argv[2:]
 start = time.monotonic()
-child = subprocess.Popen(cmd)
+try:
+    child = subprocess.Popen(cmd)
+except OSError:
+    # CMD cannot start: exit status 127, as a shell gives.
+    with open(out, "w") as f:
+        f.write("0 0 0 0 127\n")
+    sys.exit(0)
 _, status, usage = os.wait4(child.pid, 0)
 wall = time.monotonic() - start
 with open(out, "w") as f:

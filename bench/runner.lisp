@@ -16,24 +16,24 @@ NIL when it fails."
                 (uiop:run-program command :output :string
                                           :error-output nil))))
 
-(defun measured (command &key environment)
-  "Run COMMAND under measure.py: (values its output, a plist of :WALL,
-:USER and :SYSTEM seconds, :RSS-KB at its peak and :EXIT)."
-  (uiop:with-temporary-file (:pathname out)
-    (let ((output (uiop:run-program
-                   (append (and environment (cons "env" environment))
-                           (list "python3"
-                                 (uiop:native-namestring
-                                  (bench-file "measure.py"))
-                                 (uiop:native-namestring out))
-                           command)
-                   :output :string :error-output :output
-                   :ignore-error-status t)))
-      (values output
-              (with-open-file (in out)
-                (let ((*read-default-float-format* 'double-float))
-                  (list :wall (read in) :user (read in) :system (read in)
-                        :rss-kb (read in) :exit (read in))))))))
+(defun measured (command out &key environment)
+  "Run COMMAND under measure.py, which writes its numbers to the file
+OUT: (values COMMAND's output, a plist of :WALL, :USER and :SYSTEM
+seconds, :RSS-KB at its peak and :EXIT)."
+  (let ((output (uiop:run-program
+                 (append (and environment (cons "env" environment))
+                         (list "python3"
+                               (uiop:native-namestring
+                                (bench-file "measure.py"))
+                               (uiop:native-namestring out))
+                         command)
+                 :output :string :error-output :output
+                 :ignore-error-status t)))
+    (values output
+            (with-open-file (in out)
+              (let ((*read-default-float-format* 'double-float))
+                (list :wall (read in) :user (read in) :system (read in)
+                      :rss-kb (read in) :exit (read in)))))))
 
 (defun lisp-command (spec)
   "A fresh SBCL that loads the benchmark and runs SPEC, a plist of
@@ -97,6 +97,7 @@ A failed child's output goes to LOG."
            (if (native-p engine)
                (measured (native-command engine dir n threads random tuned
                                          set-only)
+                         (merge-pathnames "measure.out" dir)
                          :environment (list (format nil "KCRNDSEED=~d"
                                                     seed)))
                (measured (lisp-command
@@ -104,7 +105,8 @@ A failed child's output goes to LOG."
                                  :random random :tuned tuned :seed seed
                                  :dir (namestring dir)
                                  (cond (set-only (list :phases '(:set)))
-                                       (phases (list :phases phases)))))))
+                                       (phases (list :phases phases)))))
+                         (merge-pathnames "measure.out" dir)))
          (let ((r (if (native-p engine)
                       (parse-native-output output)
                       (read-result output))))

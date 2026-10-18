@@ -116,6 +116,16 @@ docs/provenance.md names it."
 (defun default-data-directory ()
   #p"/var/tmp/vc-bench/")
 
+(defun guarded-run (log engine &rest args)
+  "RUN-ONE of ENGINE with ARGS; if it signals, the condition goes to LOG
+and a failed run's plist (:EXIT -1) comes back, so the session goes on."
+  (handler-case (apply #'run-one engine :log log args)
+    (error (c)
+      (with-open-file (s log :direction :output :if-exists :append
+                             :if-does-not-exist :create)
+        (format s "~&== ~s~%~a~%" (cons engine args) c))
+      (list :exit -1))))
+
 (defun configurations (engines ns orders tunings)
   "Each (engine n order tuning) the matrix runs: an engine without a
 tuning knob on defaults only."
@@ -151,11 +161,11 @@ session.  Returns OUT."
           do (append-row (merge-pathnames "sizes.csv" out)
                          (list* :engine engine :tuning tuning :order order
                                 :n n
-                                (run-one engine :n n
-                                                :random (eq order :random)
-                                                :tuned (eq tuning :tuned)
-                                                :seed seed :dir dir
-                                                :log log :set-only t))
+                                (guarded-run log engine :n n
+                                             :random (eq order :random)
+                                             :tuned (eq tuning :tuned)
+                                             :seed seed :dir dir
+                                             :set-only t))
                          *size-columns*))
     (dotimes (repeat repeats out)
       (loop for (engine n order tuning) in configs
@@ -168,9 +178,8 @@ session.  Returns OUT."
                            :engine engine :tuning tuning :order order
                            :n n :threads th :repeat (1+ repeat)
                            :seed run-seed
-                           (run-one engine :n n :threads th
-                                           :random (eq order :random)
-                                           :tuned (eq tuning :tuned)
-                                           :seed run-seed :dir dir
-                                           :log log))
+                           (guarded-run log engine :n n :threads th
+                                        :random (eq order :random)
+                                        :tuned (eq tuning :tuned)
+                                        :seed run-seed :dir dir))
                     *columns*)))))))

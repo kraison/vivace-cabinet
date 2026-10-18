@@ -36,11 +36,14 @@ it ends with \"ok\"."
     (setf (getf result :errors) (if ok 0 1))
     result))
 
+(defparameter *kyoto-programs*
+  '((:kyoto-hash-native . "kchashtest") (:kyoto-tree-native . "kctreetest"))
+  "The program each native engine runs.")
+
 (defun native-command (engine dir n threads random tuned &optional set-only)
   "Kyoto's order test command for ENGINE: N records over THREADS, each
 of which Kyoto runs N/THREADS records; with SET-ONLY, its set phase."
-  (append (list (if (eq engine :kyoto-hash-native) "kchashtest" "kctreetest")
-                "order")
+  (append (list (cdr (assoc engine *kyoto-programs*)) "order")
           (and set-only (list "-set"))
           (and (> threads 1) (list "-th" (princ-to-string threads)))
           (and random (list "-rnd"))

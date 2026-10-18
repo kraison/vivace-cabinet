@@ -174,13 +174,13 @@ on defaults only."
                     (lambda ()
                       (run-matrix :engines '(:kyoto-hash-native) :ns '(200)
                                   :threads '(1) :orders '(:sequential)
-                                  :tunings '(:default) :repeats 50
+                                  :tunings '(:default) :repeats 200
                                   :data (merge-pathnames "data/" dir)
                                   :out out)))))
       (loop repeat 600
             until (and (probe-file csv) (<= 2 (length (read-runs csv))))
             do (sleep 0.1))
-      (bt:destroy-thread worker)
+      (ignore-errors (bt:destroy-thread worker))
       (ignore-errors (bt:join-thread worker))
       (sleep 0.5)
       (fiveam:is-true (probe-file csv))
@@ -202,3 +202,22 @@ on defaults only."
       (format s "machine: m~%"))
     (fiveam:is (= 1 (length (read-runs (merge-pathnames "runs.csv" dir)))))
     (fiveam:is-true (probe-file (write-report dir)))))
+
+(fiveam:test failed-runs-do-not-stop-the-session
+  "A run that cannot start, in the child or in the parent, becomes a
+failed row and the session goes on."
+  (with-scratch (dir)
+    (let ((out (merge-pathnames "out/" dir))
+          (*kyoto-programs* '((:kyoto-hash-native . "no-such-kchashtest")
+                              (:kyoto-tree-native . 42))))
+      (run-matrix :engines '(:kyoto-hash-native :kyoto-tree-native :hash)
+                  :ns '(200) :threads '(1) :orders '(:sequential)
+                  :tunings '(:default) :repeats 1
+                  :data (merge-pathnames "data/" dir) :out out)
+      (let ((exits (mapcar (lambda (r) (list (getf r :engine) (getf r :exit)))
+                           (read-runs (merge-pathnames "runs.csv" out)))))
+        (fiveam:is (equal '((:kyoto-hash-native 127) (:kyoto-tree-native -1)
+                            (:hash 0))
+                          exits)
+                   "~s" exits))
+      (fiveam:is-true (probe-file (merge-pathnames "failures.log" out))))))
