@@ -91,7 +91,10 @@ and on vivace-cabinet."
   :components ((:file "package")
                (:file "workload")
                (:file "native")
-               (:file "runner")))
+               (:file "runner")
+               (:file "matrix")
+               (:file "report")
+               (:file "main")))
 
 (defsystem "vivace-cabinet/bench-test"
   :description "Tests of the benchmark harness, at small sizes."

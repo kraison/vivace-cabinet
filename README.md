@@ -175,6 +175,14 @@ Kyoto's match calls take and return C strings: a pattern holding a zero
 byte signals `invalid-argument`, and a stored key holding one comes back
 cut off at it. The conformance check and the benchmark use it.
 
+## Benchmark
+
+`bench/run.sh` runs Kyoto Cabinet's order test on Kyoto Cabinet (its
+own programs, and from Lisp through `vivace-cabinet/kyoto`) and on
+vivace-cabinet's three engines, and writes a report;
+`docs/benchmarks/README.md` says how, and what each number means.
+`bench/run.sh --quick` checks the harness in a few minutes.
+
 ## Limits
 
 - **No crash safety.** Writes go straight to shared memory maps and reach

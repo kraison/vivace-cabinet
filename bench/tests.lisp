@@ -88,3 +88,54 @@ the same keys and the same extra operations."
                             group)))
         (fiveam:is (= 1 (length (remove-duplicates counts :test #'equal)))
                    "~s" (mapcar #'cons group counts))))))
+
+(fiveam:test report-takes-medians
+  "Each cell: the median of the runs, the slowest and fastest beside
+it; a failed run is left out and said so."
+  (with-scratch (dir)
+    (with-open-file (s (merge-pathnames "runs.csv" dir) :direction :output)
+      (write-header s *columns*)
+      (loop for (engine set exit) in '((:hash 1 0) (:hash 2 0) (:hash 5 0)
+                                       (:bplus-tree 1 0) (:bplus-tree 1 1))
+            for repeat from 1
+            do (write-row s (list :machine "m" :engine engine
+                                  :tuning :default :order :sequential
+                                  :n 1000000 :threads 1 :repeat repeat
+                                  :open 0.5 :set set :get 1 :remove 1
+                                  :close 0.5 :cpu 3 :rss-kb 2048
+                                  :count 1000000 :left 0 :errors 0
+                                  :exit exit)
+                          *columns*)))
+    (with-open-file (s (merge-pathnames "sizes.csv" dir) :direction :output)
+      (write-header s *size-columns*)
+      (write-row s '(:engine :hash :tuning :default :order :sequential
+                     :n 1000000 :size-kb 3072 :count 1000000 :exit 0)
+                 *size-columns*))
+    (with-open-file (s (merge-pathnames "env.txt" dir) :direction :output)
+      (format s "machine: m~%cores: 4~%"))
+    (let ((text (uiop:read-file-string (write-report dir))))
+      (fiveam:is (search (format nil "| vivace-cabinet HashDB | 1 | ~
+500 (200–1,000) | 1,000 (1,000–1,000) | 1,000 (1,000–1,000) | 1.00 | ~
+3.0 | 2 | 3.0 |")
+                         text)
+                 "~a" text)
+      (fiveam:is (search "1 of 2 runs failed" text) "~a" text))))
+
+(fiveam:test matrix-writes-a-row-per-run
+  "A row per run and per size run; an engine without a tuning knob runs
+on defaults only."
+  (with-scratch (dir)
+    (let* ((out (merge-pathnames "out/" dir))
+           (data (merge-pathnames "data/" dir)))
+      (run-matrix :engines '(:kyoto-hash-native :bplus-tree) :ns '(300)
+                  :threads '(1) :orders '(:sequential)
+                  :tunings '(:default :tuned) :repeats 2 :data data :out out)
+      (let ((runs (read-runs (merge-pathnames "runs.csv" out)))
+            (sizes (read-runs (merge-pathnames "sizes.csv" out))))
+        (fiveam:is (= 6 (length runs)))
+        (fiveam:is (= 3 (length sizes)))
+        (fiveam:is (every (lambda (r) (eql 0 (getf r :exit))) runs))
+        (fiveam:is (notany (lambda (r) (and (eq :bplus-tree (getf r :engine))
+                                            (eq :tuned (getf r :tuning))))
+                           runs))
+        (fiveam:is (probe-file (write-report out)))))))
