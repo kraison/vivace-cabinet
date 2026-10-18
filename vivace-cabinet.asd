@@ -81,6 +81,28 @@ Cabinet, compared step by step."
                                          :vivace-cabinet-conformance))
                (error "conformance tests failed"))))
 
+(defsystem "vivace-cabinet/bench"
+  :description "Benchmark round 1: Kyoto Cabinet's order test on Kyoto
+and on vivace-cabinet."
+  :depends-on ("vivace-cabinet" "vivace-cabinet/kyoto" "alexandria"
+               "bordeaux-threads" "uiop")
+  :pathname "bench/"
+  :serial t
+  :components ((:file "package")
+               (:file "workload")))
+
+(defsystem "vivace-cabinet/bench-test"
+  :description "Tests of the benchmark harness, at small sizes."
+  :depends-on ("vivace-cabinet/bench" "fiveam")
+  :pathname "bench/"
+  :components ((:file "tests"))
+  :perform (test-op (o c)
+             (unless (uiop:symbol-call
+                      :fiveam :run!
+                      (uiop:find-symbol* :bench-suite
+                                         :vivace-cabinet-bench))
+               (error "benchmark harness tests failed"))))
+
 (defsystem "vivace-cabinet/test"
   :description "FiveAM tests for vivace-cabinet."
   :depends-on ("vivace-cabinet" "fiveam" "babel" "uiop")
