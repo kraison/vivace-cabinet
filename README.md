@@ -225,6 +225,20 @@ a hash's two sparse 1000 MiB files without keeping them sparse, so the
 temp directory needs about 2 GB free; where `/tmp` is a small tmpfs, run
 with `TMPDIR=/var/tmp`.
 
+The conformance check runs random sequences of operations on
+vivace-cabinet and on Kyoto Cabinet, and fails on any difference in a
+result or a `db-error` reason; `docs/conformance.md` says what it
+compares. It needs Kyoto Cabinet 1.2.80 and cl-kyoto-cabinet, here
+checked out in `~/work/cl-kyoto-cabinet`:
+
+    sbcl --non-interactive --load ~/quicklisp/setup.lisp \
+      --eval '(push (truename "./") asdf:*central-registry*)' \
+      --eval '(push (merge-pathnames "work/cl-kyoto-cabinet/"
+                                     (user-homedir-pathname))
+                    asdf:*central-registry*)' \
+      --eval '(ql:quickload :vivace-cabinet/conformance)' \
+      --eval '(asdf:test-system :vivace-cabinet/conformance)'
+
 ## Provenance and licence
 
 Copied code, and exactly what was copied, is listed in

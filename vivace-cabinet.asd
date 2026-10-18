@@ -70,7 +70,10 @@ Cabinet, compared step by step."
   :serial t
   :components ((:file "package")
                (:file "support")
-               (:file "adapter-tests"))
+               (:file "adapter-tests")
+               (:file "ops")
+               (:file "run")
+               (:file "tests"))
   :perform (test-op (o c)
              (unless (uiop:symbol-call
                       :fiveam :run!
