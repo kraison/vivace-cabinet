@@ -20,18 +20,27 @@ NIL when it fails."
   "Run COMMAND under measure.py, which writes its numbers to the file
 OUT and kills COMMAND after TIMEOUT seconds: (values COMMAND's output,
 a plist of :WALL, :USER and :SYSTEM seconds, :RSS-KB at its peak,
-:EXIT, and :TIMED-OUT)."
-  (let ((output (uiop:run-program
-                 (append (and environment (cons "env" environment))
-                         (list "python3"
-                               (uiop:native-namestring
-                                (bench-file "measure.py"))
-                               (uiop:native-namestring out)
-                               (princ-to-string (or timeout 0)))
-                         command)
-                 :output :string :error-output :output
-                 :ignore-error-status t)))
-    (values output
+:EXIT, and :TIMED-OUT).  The wait is a Lisp loop: SBCL holds back
+SIGTERM while it waits in RUN-PROGRAM.  Unwinding it stops measure.py,
+which kills COMMAND."
+  (let* ((log (make-pathname :type "log" :defaults out))
+         (p (uiop:launch-program
+             (append (and environment (cons "env" environment))
+                     (list "python3"
+                           (uiop:native-namestring
+                            (bench-file "measure.py"))
+                           (uiop:native-namestring out)
+                           (princ-to-string (or timeout 0)))
+                     command)
+             :output log :if-output-exists :supersede
+             :error-output :output)))
+    (unwind-protect
+         (loop while (uiop:process-alive-p p)
+               do (sleep 0.2))
+      (when (uiop:process-alive-p p)
+        (uiop:terminate-process p))
+      (uiop:wait-process p))
+    (values (uiop:read-file-string log)
             (with-open-file (in out)
               (let ((*read-default-float-format* 'double-float))
                 (list :wall (read in) :user (read in) :system (read in)
@@ -43,23 +52,28 @@ a plist of :WALL, :USER and :SYSTEM seconds, :RSS-KB at its peak,
 and a millisecond a record, several times the slowest engine's pace."
   (+ 600 (ceiling n 1000)))
 
-(defun lisp-command (spec)
-  "A fresh SBCL that loads the benchmark and runs SPEC, a plist of
-RUN-ORDER's arguments with its :ENGINE."
+(defun sbcl-command (&rest forms)
+  "A fresh SBCL that loads the benchmark and evaluates FORMS, strings."
   (flet ((push-form (system)
            (format nil "(push ~s asdf:*central-registry*)"
                    (namestring (asdf:system-source-directory system)))))
-    (list "sbcl" "--noinform" "--non-interactive"
-          "--load" (uiop:native-namestring
-                    (merge-pathnames "setup.lisp"
-                                     (symbol-value
-                                      (find-symbol "*QUICKLISP-HOME*"
-                                                   "QL"))))
-          "--eval" (push-form "vivace-cabinet")
-          "--eval" (push-form "cl-kyoto-cabinet")
-          "--eval" "(asdf:load-system :vivace-cabinet/bench)"
-          "--eval" (with-standard-io-syntax
-                     (format nil "(vivace-cabinet-bench::child '~s)" spec)))))
+    (list* "sbcl" "--noinform" "--non-interactive"
+           "--load" (uiop:native-namestring
+                     (merge-pathnames "setup.lisp"
+                                      (symbol-value
+                                       (find-symbol "*QUICKLISP-HOME*"
+                                                    "QL"))))
+           "--eval" (push-form "vivace-cabinet")
+           "--eval" (push-form "cl-kyoto-cabinet")
+           "--eval" "(asdf:load-system :vivace-cabinet/bench)"
+           (loop for form in forms
+                 nconc (list "--eval" form)))))
+
+(defun lisp-command (spec)
+  "A fresh SBCL that loads the benchmark and runs SPEC, a plist of
+RUN-ORDER's arguments with its :ENGINE."
+  (sbcl-command (with-standard-io-syntax
+                  (format nil "(vivace-cabinet-bench::child '~s)" spec))))
 
 (defun child (spec)
   "In a benchmark child: run SPEC and print RUN-ORDER's plist on a line

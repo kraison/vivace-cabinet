@@ -236,3 +236,52 @@ child of its own, and reported as timed out."
       (fiveam:is (< seconds 30) "~,1f s" seconds)
       (fiveam:is (null (command-output "pgrep" "-f"
                                        (namestring dir)))))))
+
+(fiveam:test interrupted-runs-leave-no-child
+  "A run interrupted mid-way, as Ctrl-C or a kill unwinds it, takes its
+child with it at once."
+  (with-scratch (dir)
+    (let* ((db (merge-pathnames "db/" dir))
+           (worker (bt:make-thread
+                    (lambda () (run-one :hash :n 5000000 :dir db)))))
+      (loop repeat 300
+            until (command-output "pgrep" "-f" (namestring db))
+            do (sleep 0.1))
+      (fiveam:is-true (command-output "pgrep" "-f" (namestring db)))
+      (ignore-errors (bt:destroy-thread worker))
+      (loop repeat 100
+            while (command-output "pgrep" "-f" (namestring db))
+            do (sleep 0.1))
+      (fiveam:is (null (command-output "pgrep" "-f" (namestring db))))
+      (ignore-errors (bt:join-thread worker)))))
+
+(defun holders (path)
+  "The PIDs of processes whose command line holds PATH."
+  (let ((out (command-output "pgrep" "-f" (namestring path))))
+    (and out (uiop:split-string out :separator '(#\Newline)))))
+
+(fiveam:test terminated-sessions-stop-at-once
+  "A session sent SIGTERM mid-run, as kill or systemd sends it, stops at
+once and takes its run's child with it."
+  (with-scratch (dir)
+    (let* ((db (merge-pathnames "db/" dir))
+           (session (uiop:launch-program
+                     (sbcl-command
+                      (format nil "(vivace-cabinet-bench::run-one :hash ~
+:n 5000000 :dir #p~s)" (namestring db)))
+                     :output nil :error-output nil)))
+      (unwind-protect
+           (progn
+             (loop repeat 600
+                   until (probe-file (merge-pathnames "db.vch/" db))
+                   do (sleep 0.1))
+             (fiveam:is-true (probe-file (merge-pathnames "db.vch/" db)))
+             (uiop:terminate-process session)
+             (loop repeat 150
+                   while (holders db)
+                   do (sleep 0.1))
+             (fiveam:is (null (holders db)) "still running: ~s"
+                        (holders db)))
+        (dolist (pid (holders db))
+          (command-output "kill" "-9" pid))
+        (ignore-errors (uiop:wait-process session))))))
