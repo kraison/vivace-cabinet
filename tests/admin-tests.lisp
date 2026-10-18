@@ -55,13 +55,27 @@
         (is (null (db-get c "after")))
         (is (eq (getf *db-type-args* :type) (getf (db-status c) :type)))))))
 
+(defun file-lengths (dir)
+  "The length of each file in DIR and DIR's index/, by name."
+  (sort (loop for f in (append (uiop:directory-files dir)
+                               (uiop:directory-files
+                                (merge-pathnames "index/" dir)))
+              collect (cons (enough-namestring f dir)
+                            (with-open-file (s f :element-type
+                                                 '(unsigned-byte 8))
+                              (file-length s))))
+        #'string< :key #'car))
+
 (test copy-keeps-holes
-  "The index's 1000 MiB sparse files stay sparse in a copy."
+  "The index's 1000 MiB sparse files stay sparse in a copy, and every
+file keeps its length, those that end in a hole too."
   (with-temp-directory (dir)
-    (let ((copy (merge-pathnames "c.vch/" dir)))
-      (with-db (db (merge-pathnames "o.vch/" dir))
+    (let ((orig (merge-pathnames "o.vch/" dir))
+          (copy (merge-pathnames "c.vch/" dir)))
+      (with-db (db orig)
         (db-set db "k" "v")
-        (db-copy db copy))
+        (db-copy db copy)
+        (is (equal (file-lengths orig) (file-lengths copy))))
       (let ((kb (parse-integer
                  (uiop:run-program
                   (list "du" "-k" (namestring
