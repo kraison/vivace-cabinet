@@ -4,8 +4,8 @@ from vivace-graph's on-disk structures."
   :author "Kevin Raison"
   :license "MIT"
   :version "0.1.0"
-  :depends-on ("alexandria" "babel" "bordeaux-threads" "cffi" "cl-store"
-               "log4cl" "uiop" #+(or ccl lispworks) "closer-mop")
+  :depends-on ("alexandria" "babel" "bordeaux-threads" "cffi" "cl-ppcre"
+               "cl-store" "log4cl" "uiop" #+(or ccl lispworks) "closer-mop")
   :serial t
   :components ((:file "package")
                (:module "substrate"
@@ -43,7 +43,8 @@ from vivace-graph's on-disk structures."
                (:file "hash-cursor")
                (:file "visitors")
                (:file "atomic-ops")
-               (:file "bulk"))
+               (:file "bulk")
+               (:file "match"))
   :in-order-to ((test-op (test-op "vivace-cabinet/test"))))
 
 (defsystem "vivace-cabinet/test"
@@ -68,7 +69,8 @@ from vivace-graph's on-disk structures."
                (:file "concurrency-tests")
                (:file "visitor-tests")
                (:file "atomic-ops-tests")
-               (:file "bulk-tests"))
+               (:file "bulk-tests")
+               (:file "match-tests"))
   :perform (test-op (o c)
              (unless (uiop:symbol-call
                       :fiveam :run!

@@ -115,6 +115,13 @@ other threads wait until it ends, as in Kyoto Cabinet.
 once, read-only, also holding the database. `cursor-accept` visits a
 cursor's record, and with `:step t` moves on.
 
+`db-match-prefix`, `db-match-regex` (CL-PPCRE syntax, matched against
+keys read as UTF-8) and `db-match-similar` (Levenshtein distance in
+bytes, or in characters with `:utf t`; nearest first) return lists of
+keys, at most `:max` of them. On a TreeDB in byte order,
+`db-match-prefix` reads only the matching keys and returns them in
+order; every other match reads every key.
+
 ## Limits
 
 - **No crash safety.** Writes go straight to shared memory maps and reach

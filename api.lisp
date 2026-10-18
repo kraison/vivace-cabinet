@@ -185,3 +185,17 @@ signalled again here."))
 when STEP.  T, or NIL with :NO-RECORD when the cursor is on none."))
 
 (defgeneric %cursor-db (cursor))
+
+(defgeneric db-match-prefix (db prefix &key max as)
+  (:documentation "The keys that begin with PREFIX, at most MAX of them;
+in key order on a TreeDB."))
+
+(defgeneric db-match-regex (db regex &key max as)
+  (:documentation "The keys whose UTF-8 text a match of REGEX (CL-PPCRE
+syntax) occurs in, at most MAX.  Bytes that are not UTF-8 read as
+U+FFFD.  A bad REGEX signals INVALID-ARGUMENT."))
+
+(defgeneric db-match-similar (db origin range &key utf max as)
+  (:documentation "The keys within Levenshtein distance RANGE of ORIGIN,
+nearest first, then in byte order; at most MAX.  UTF compares UTF-8
+characters, else bytes."))

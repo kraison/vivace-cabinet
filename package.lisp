@@ -25,4 +25,5 @@
            #:db-accept #:db-accept-bulk
            #:db-cas #:db-increment #:db-increment-double
            #:db-set-bulk #:db-get-bulk #:db-remove-bulk
-           #:db-iterate #:db-scan-parallel #:cursor-accept))
+           #:db-iterate #:db-scan-parallel #:cursor-accept
+           #:db-match-prefix #:db-match-regex #:db-match-similar))
