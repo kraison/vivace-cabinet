@@ -48,9 +48,14 @@ or :SUCCESS if none has failed."))
     (%signal 'invalid-argument "AS must be :OCTETS or :STRING: ~s" as)))
 
 (defun from-octets (octets as)
-  "OCTETS as AS, which CHECK-AS has accepted."
+  "OCTETS as AS, which CHECK-AS has accepted.  Under :STRING, bytes that
+are not UTF-8 signal INVALID-ARGUMENT."
   (if (eq as :string)
-      (babel:octets-to-string octets :encoding :utf-8)
+      (handler-case (babel:octets-to-string octets :encoding :utf-8)
+        (babel:character-decoding-error ()
+          (%signal 'invalid-argument
+                   "~d bytes that are not UTF-8 cannot be read :AS :STRING"
+                   (length octets))))
       octets))
 
 (defun %existing-header (dir)

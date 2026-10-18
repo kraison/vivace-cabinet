@@ -66,3 +66,15 @@ distances; byte distances use its bytes."
     (is (= 2 (length (db-match-similar db "a" 2 :utf t))))
     (is (equalp (list (octets-of 255 254 97))
                 (db-match-prefix db (octets-of 255))))))
+
+(def-db-test strings-of-bytes-that-are-not-utf-8-signal
+  "Asking for :AS :STRING on bytes that are not UTF-8 signals
+INVALID-ARGUMENT, whichever call asks."
+  (with-temp-db (db)
+    (db-set db (octets-of 255 254 97) (octets-of 255))
+    (signals invalid-argument
+      (db-get db (octets-of 255 254 97) :as :string))
+    (signals invalid-argument (db-match-prefix db "" :as :string))
+    (signals invalid-argument (db-match-regex db "a$" :as :string))
+    (signals invalid-argument
+      (db-match-similar db "a" 2 :utf t :as :string))))
