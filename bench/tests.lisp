@@ -48,3 +48,43 @@ nothing unexpected; every phase is timed."
               (fiveam:is (equal '(600 0) (list (getf r :count)
                                                (getf r :left)))
                          "~a: ~s" engine r)))))))
+
+(fiveam:test native-output-is-read
+  (let ((r (parse-native-output (format nil "<In-order Test>~%~
+opening the database:~%count: 0~%time: 0.002~%setting records:~%~
+....... (00001000)~%count: 1260~%size: 6338328~%time: 0.008~%~
+getting records:~%count: 1257~%time: 0.002~%removing records:~%~
+count: 503~%time: 0.004~%closing the database:~%time: 0.003~%ok~%"))))
+    (fiveam:is (equalp '(0.002d0 0.008d0 0.002d0 0.004d0 0.003d0 1260 503 0)
+                       (mapcar (lambda (k) (getf r k))
+                               '(:open :set :get :remove :close :count :left
+                                 :errors))))))
+
+(fiveam:test runs-in-their-own-processes
+  "Kyoto's own program and a Lisp child each run measured: every
+record set and removed, the process's CPU and memory, and the size."
+  (with-scratch (dir)
+    (dolist (engine '(:kyoto-hash-native :hash))
+      (let ((r (run-one engine :n 600 :threads 2 :dir dir)))
+        (fiveam:is (equal '(600 0 0 0)
+                          (mapcar (lambda (k) (getf r k))
+                                  '(:count :left :errors :exit)))
+                   "~a: ~s" engine r)
+        (fiveam:is (every (lambda (k) (realp (getf r k)))
+                          '(:set :cpu :rss-kb :size-kb)))))))
+
+(fiveam:test port-matches-kyotos-own-test
+  "One thread, one seed: Kyoto's own program, Kyoto from Lisp and
+vivace-cabinet end each phase with the same records, so the port draws
+the same keys and the same extra operations."
+  (with-scratch (dir)
+    (dolist (group '((:kyoto-hash-native :kyoto-hash :hash)
+                     (:kyoto-tree-native :kyoto-tree :bplus-tree
+                      :skip-list)))
+      (let ((counts (mapcar (lambda (engine)
+                              (let ((r (run-one engine :n 3000 :random t
+                                                       :seed 7 :dir dir)))
+                                (list (getf r :count) (getf r :left))))
+                            group)))
+        (fiveam:is (= 1 (length (remove-duplicates counts :test #'equal)))
+                   "~s" (mapcar #'cons group counts))))))

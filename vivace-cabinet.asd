@@ -89,7 +89,9 @@ and on vivace-cabinet."
   :pathname "bench/"
   :serial t
   :components ((:file "package")
-               (:file "workload")))
+               (:file "workload")
+               (:file "native")
+               (:file "runner")))
 
 (defsystem "vivace-cabinet/bench-test"
   :description "Tests of the benchmark harness, at small sizes."
