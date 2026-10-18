@@ -41,3 +41,13 @@ then signal instead of reaching freed memory."
       ;; Only when released: a live one would reach freed memory.
       (when (null (vivace-cabinet-kyoto::%kc-ptr left))
         (fiveam:signals invalid-argument (cursor-jump left))))))
+
+(fiveam:test adapter-matches-refuse-zero-bytes
+  "Kyoto's match calls take C strings: a pattern holding a zero byte
+signals INVALID-ARGUMENT rather than matching on the part before it."
+  (with-kyoto (db "z.kct")
+    (db-set db "ab" "v")
+    (let ((p (coerce #(97 0 98) '(simple-array (unsigned-byte 8) (*)))))
+      (fiveam:signals invalid-argument (db-match-prefix db p))
+      (fiveam:signals invalid-argument (db-match-regex db p))
+      (fiveam:signals invalid-argument (db-match-similar db p 1)))))

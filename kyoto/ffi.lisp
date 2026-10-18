@@ -106,12 +106,18 @@
       (kyoto-cabinet-ffi:kcfree ptr))))
 
 (defmacro with-c-string ((ptr v) &body body)
-  "Run BODY with PTR pointing at a zero-terminated copy of the octets V."
+  "Run BODY with PTR pointing at a zero-terminated copy of the octets V;
+octets holding a zero byte signal INVALID-ARGUMENT."
   (let ((n (gensym "N"))
-        (src (gensym "SRC")))
-    `(let ((,n (length ,v)))
+        (src (gensym "SRC"))
+        (octets (gensym "OCTETS")))
+    `(let* ((,octets ,v)
+            (,n (length ,octets)))
+       (when (find 0 ,octets)
+         (%signal 'invalid-argument "Kyoto's match calls take C strings: ~
+~s holds a zero byte" ,octets))
        (cffi:with-foreign-pointer (,ptr (1+ ,n))
-         (with-octets (,src ,v)
+         (with-octets (,src ,octets)
            (cffi:foreign-funcall "memcpy" :pointer ,ptr :pointer ,src
                                           :size ,n :pointer))
          (setf (cffi:mem-aref ,ptr :uint8 ,n) 0)

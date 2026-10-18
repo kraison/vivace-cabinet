@@ -171,8 +171,9 @@ The file's extension picks the type (`.kch` HashDB, `.kct` TreeDB).
 parameters, as in `'(:bnum 2000000)`. It covers the record operations,
 increments, compare-and-swap, bulk operations, matching, `db-count`,
 `db-size`, `db-clear` and cursors, with Kyoto's reasons from `db-error`.
-Kyoto's match calls pass keys as C strings, so a key holding a zero byte
-does not match. The conformance check and the benchmark use it.
+Kyoto's match calls take and return C strings: a pattern holding a zero
+byte signals `invalid-argument`, and a stored key holding one comes back
+cut off at it. The conformance check and the benchmark use it.
 
 ## Limits
 
