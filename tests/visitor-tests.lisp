@@ -388,3 +388,20 @@ nothing and leaves the cursor where it was."
       (is-true (cursor-accept cur (answer :remove) :writable nil))
       (is (= 2 (db-count db)))
       (is (equal "a" (cursor-get-key cur :as :string))))))
+
+(def-db-test failed-jumps-leave-the-cursor-nowhere
+  "A jump that finds no record leaves the cursor on none, as Kyoto's
+does, and a clear before it does not bring back an older position."
+  (with-temp-db (db)
+    (db-set db "a" "v")
+    (db-set db "b" "v")
+    (with-cursor (cur db)
+      (cursor-jump cur "a")
+      (is (null (cursor-jump cur "zz")))
+      (is (null (cursor-get-key cur)))
+      (cursor-jump cur "a")
+      (db-clear db)
+      (db-set db "a" "v")
+      (db-set db "b" "v")
+      (is (null (cursor-jump cur "zz")))
+      (is (null (cursor-get-key cur))))))

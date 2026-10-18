@@ -79,7 +79,11 @@ holds the database lock."
                                                     :test #'equalp))
                       (%hc-key c) k)
                 t)
-              (%fail db :no-record))))))
+              ;; Kyoto's jump leaves the cursor nowhere when it fails.
+              (progn (setf (%hc-key c) nil
+                           (%hc-pending c) nil
+                           (%hc-bucket c) -1)
+                     (%fail db :no-record)))))))
 
 (defmethod %cursor-current ((c hash-cursor))
   (%with-hash-cursor (db c)
