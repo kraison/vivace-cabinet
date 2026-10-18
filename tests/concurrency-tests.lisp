@@ -68,7 +68,8 @@ another thread removes reads the next one."
 (def-tree-test concurrent-writers-readers-and-cursors
   "Eight writers set, replace, remove and append over 2000 shared keys
 while two readers and two cursors run.  Every value read belongs to its
-key, cursors stay in order, and the writers finish within two minutes."
+key, a forward walk stays in order, and the writers finish within two
+minutes."
   (with-temp-db (db)
     (let* ((lock (bt:make-lock))
            (stop nil)

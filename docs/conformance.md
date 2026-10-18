@@ -24,7 +24,8 @@ benchmark also uses.
   - The three matches, a whole cursor walk, and a jump to a key followed
     by a read.
   - On a TreeDB, also a cursor held across steps: jumps and steps both
-    ways, reads, value sets, removes and seizes.
+    ways, reads (with and without `:step`), value sets, removes and
+    seizes.
 - **Size.** The test suite runs 20 sequences of 1,000 operations on each
   kind. `(check-conformance :seeds 100 :steps 5000)` runs more and
   returns the differences; `(replay kind seed step)` prints the
@@ -33,10 +34,11 @@ benchmark also uses.
 ## What it leaves out, and why
 
 - **HashDB order.** A HashDB's order is its own in each library, so its
-  walks and matches are compared as sorted sets, and its cursors only by
-  a jump and a read. `:max` is not tried on its prefix and regex
-  matches. Kyoto returns bulk gets in key order, so both are compared
-  in key order.
+  walks and its prefix and regex matches are compared as sorted sets, and
+  its cursors only by a jump and a read. `:max` is not tried on those
+  matches. Similar-key matches are sorted by both libraries, so they are
+  compared as returned. Kyoto returns bulk gets in key order, so both are
+  compared in key order.
 - **An increment landing exactly on the most negative 64-bit integer.**
   Kyoto reports that value as failure (#8). Small steps never reach it.
 - **Regular expressions and key bytes.** The expressions used read alike
