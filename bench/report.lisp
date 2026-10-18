@@ -85,8 +85,8 @@ slowest and fastest run in brackets."
           (if (eq tuning :tuned) "tuned" "default tuning")))
 
 (defun size-cell (sizes engine n order tuning)
-  "Megabytes ENGINE's database takes holding N records, from its
-set-only run in SIZES."
+  "Megabytes ENGINE's database takes after its set-only run in SIZES:
+N records, or in random order the distinct keys drawn."
   (let ((row (find-if (lambda (r) (and (eq engine (getf r :engine))
                                        (eql n (getf r :n))
                                        (eq order (getf r :order))
@@ -162,7 +162,8 @@ results are in `~a`. What each engine and column is: ~
       (format s "~%## Results~%~%Set, get and remove are thousands of ~
 records per second: the median of ~d runs, with the slowest and ~
 fastest in brackets. Open + close, CPU and peak RSS are medians; size ~
-is the database holding all its records, from one set-only run. ~
+is the database after one set-only run, which in random order holds ~
+about 62% of N distinct keys. ~
 vivace-cabinet's TreeDB has no tuning knob, so it runs on defaults ~
 only.~%" repeats)
       (when (and cores (some (lambda (r) (> (getf r :threads) cores)) runs))

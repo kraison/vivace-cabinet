@@ -37,12 +37,16 @@ The harness runs Kyoto Cabinet's order test, as `kchashtest order` and
 functions, so one workload runs on Kyoto from Lisp and on
 vivace-cabinet's engines.
 
-The port is faithful: with one thread and one seed, every engine ends
-each phase with the same records as Kyoto's own program
-(`port-matches-kyotos-own-test`). One difference: Kyoto's test shares
+The port is faithful: with one thread and one seed, every engine has
+as many records as Kyoto's own program after the set phase and after
+the remove phase (`port-matches-kyotos-own-test`). One difference: Kyoto's test shares
 one random generator among its threads, while the port gives each
 thread its own: thread 0 on the run's seed, as Kyoto seeds its own, and
 thread i on the seed plus 1,000,003 i, so no two runs share a stream.
+Kyoto's threads update their one generator without a lock, so in
+random runs at more than one thread they contend for it and the port's
+threads do not. There, `kyoto-hash-native` against `kyoto-hash` (and
+the tree pair) understates what the route through Lisp costs.
 
 ## Engines
 
@@ -87,12 +91,17 @@ thread i on the seed plus 1,000,003 i, so no two runs share a stream.
 `runs.csv` has one row per run:
 
 - **Phase times** are wall seconds from the engine's own clock: Kyoto's
-  programs print them in milliseconds, and the Lisp harness reads
-  SBCL's real-time clock.
+  programs print them in milliseconds from `gettimeofday`, and the Lisp
+  harness reads SBCL's real-time clock, which is monotonic. A clock
+  step or a suspend during a run changes only Kyoto's programs' times.
 - **CPU** is, for a Lisp engine, the child's CPU from open to close,
   without loading Lisp. For Kyoto's programs it is the whole process's.
 - **Peak RSS** is the whole process's, from `bench/measure.py`'s
-  `wait4`. A Lisp process's includes SBCL's image, about 50 MB.
+  `wait4`. A Lisp process's includes SBCL's image, about 50 MB. It has
+  a floor of about 12 MB, measure.py's own size when it starts the run:
+  Kyoto's programs at small N read that floor. It also counts the
+  database's pages mapped into memory: vivace-cabinet maps its files
+  whole, and Kyoto maps the first 64 MB of its file (`msiz`).
 - **`count` and `left`** are the records after the set and remove
   phases.
 - **`errors`** are unexpected failures, and **`exit`** is the process's
@@ -101,7 +110,8 @@ thread i on the seed plus 1,000,003 i, so no two runs share a stream.
 `sizes.csv` has one row per configuration: `du` of the database after a
 set-only run, whose close writes every record. Kyoto's TreeDB writes its
 pages only at close, so after a full run it would show the emptied
-tree.
+tree. In random order the set phase draws keys with repeats, so the
+database holds about 62% of N distinct keys.
 
 `env.txt` records the machine, CPU, memory, disks, data filesystem,
 kernel, SBCL, Kyoto Cabinet, the vivace-cabinet commit and the
