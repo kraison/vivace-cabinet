@@ -132,3 +132,16 @@ holds the database lock."
 
 (defmethod cursor-step-back ((c hash-cursor))
   (%signal 'not-implemented "a HashDB cursor moves forward only"))
+
+(defmethod %cursor-db ((c hash-cursor))
+  (%hc-db c))
+
+(defmethod %key-batches ((db hash-db))
+  (let ((bucket -1)
+        (lock (make-lock "hash key batches")))
+    (lambda ()
+      (loop
+        (multiple-value-bind (keys past)
+            (%hc-bucket-keys db (with-lock-held (lock) (incf bucket)))
+          (cond (past (return nil))
+                (keys (return keys))))))))

@@ -305,3 +305,16 @@ over overlapping keys cannot deadlock."
 both decoded AS, and when WRITABLE apply its answer: NIL or :NOP keeps
 the record, :REMOVE removes it, anything else is stored.  The caller
 holds KEY's stripe, or the whole database.  Returns the answer."))
+
+(defgeneric %key-batches (db)
+  (:documentation "A function that returns the next batch of DB's keys
+on each call and NIL when there are no more; safe to call from several
+threads.  Each key comes in one batch when nothing writes meanwhile."))
+
+(defun %walk-keys (db fn)
+  "Call FN with each of DB's keys; FN may change or remove that key's
+record.  The caller holds DB exclusively."
+  (loop with next = (%key-batches db)
+        for batch = (funcall next)
+        while batch
+        do (mapc fn batch)))

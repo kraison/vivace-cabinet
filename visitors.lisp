@@ -37,3 +37,54 @@ fails with :NO-PERMISSION, and one under :AUTOSYNC synchronizes after."
                                     (%visit db k d visitor as writable))
                                   ks ds)))
       t)))
+
+(defmethod db-iterate ((db database) visitor &key (writable t)
+                                                  (as :octets))
+  (check-as as)
+  (%accepting (db writable)
+    (with-write-lock ((%db-lock db))
+      (%check-open db)
+      (%walk-keys db (lambda (k)
+                       (%visit db k (%key-digest db k) visitor as writable)))
+      t)))
+
+(defmethod db-scan-parallel ((db database) visitor &key (threads 4)
+                                                        (as :octets))
+  (check-as as)
+  (unless (typep threads '(integer 1))
+    (%signal 'invalid-argument "THREADS must be a positive integer: ~s"
+             threads))
+  ;; The database is held throughout, so the workers read unlocked.
+  (with-write-lock ((%db-lock db))
+    (%check-open db)
+    (let* ((next (%key-batches db))
+           (lock (make-lock "scan failure"))
+           (failure nil)
+           (workers
+             (loop repeat threads
+                   collect (make-thread
+                            (lambda ()
+                              (handler-case
+                                  (loop for batch = (funcall next)
+                                        while (and batch (not failure))
+                                        do (dolist (k batch)
+                                             (%visit db k (%key-digest db k)
+                                                     visitor as nil)))
+                                (error (c)
+                                  (with-lock-held (lock)
+                                    (unless failure
+                                      (setf failure c))))))
+                            :name "vivace-cabinet scan"))))
+      (mapc #'join-thread workers)
+      (when failure
+        (error failure))
+      t)))
+
+(defmethod cursor-accept (cursor visitor &key (writable t) step
+                                              (as :octets))
+  (let ((k (cursor-get-key cursor)))
+    (and k
+         (db-accept (%cursor-db cursor) k visitor :writable writable :as as)
+         (progn (when step
+                  (cursor-step cursor))
+                t))))

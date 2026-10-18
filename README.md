@@ -109,6 +109,12 @@ takes its last value) and returns how many it stored; `db-get-bulk`
 returns an alist of the keys it finds; `db-remove-bulk` returns how many
 it removed. Each is atomic unless given `:atomic nil`.
 
+`db-iterate` visits every record while holding the whole database:
+other threads wait until it ends, as in Kyoto Cabinet.
+`db-scan-parallel` visits every record from `:threads` threads (4) at
+once, read-only, also holding the database. `cursor-accept` visits a
+cursor's record, and with `:step t` moves on.
+
 ## Limits
 
 - **No crash safety.** Writes go straight to shared memory maps and reach

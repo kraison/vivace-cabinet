@@ -117,3 +117,109 @@ every lock released."
     (is (equal "1" (db-get db "a" :as :string)))
     (is-true (db-set db "a" "2"))
     (is (equal "2" (db-get db "a" :as :string)))))
+
+(def-db-test iterate-visits-every-record-once
+  (with-temp-db (db)
+    (dotimes (i 300)
+      (db-set db (keyed i) "v"))
+    (let ((seen '()))
+      (is-true (db-iterate db (lambda (k v)
+                                (declare (ignore v))
+                                (push k seen)
+                                :nop)
+                           :writable nil :as :string))
+      (is (equal (loop for i below 300 collect (keyed i))
+                 (sort seen #'string<))))
+    (is-true (db-iterate db (lambda (k v)
+                              (if (char= #\0 (char k 5))
+                                  :remove
+                                  (string-upcase v)))
+                         :as :string))
+    (is (= 270 (db-count db)))
+    (is (equal "V" (db-get db (keyed 1) :as :string)))
+    (is (null (db-get db (keyed 10))))))
+
+(def-db-test iterate-holds-the-database
+  "A write started during an iteration lands only after it."
+  (with-temp-db (db)
+    (dotimes (i 50)
+      (db-set db (keyed i) "v"))
+    (let ((writer nil)
+          (last-visit 0)
+          (written 0))
+      (db-iterate db (lambda (k v)
+                       (declare (ignore k v))
+                       (unless writer
+                         (setf writer
+                               (bt:make-thread
+                                (lambda ()
+                                  (db-set db "late" "x")
+                                  (setf written
+                                        (get-internal-real-time)))))
+                         (sleep 0.3))
+                       (setf last-visit (get-internal-real-time))
+                       :nop)
+                  :writable nil)
+      (bt:join-thread writer)
+      (is (>= written last-visit))
+      (is (equal "x" (db-get db "late" :as :string))))))
+
+(def-db-test scan-parallel-visits-every-record-once
+  "Four threads visit 2000 records; answers are ignored."
+  (with-temp-db (db)
+    (dotimes (i 2000)
+      (db-set db (keyed i) (keyed i)))
+    (let ((seen '())
+          (lock (bt:make-lock)))
+      (is-true (db-scan-parallel db (lambda (k v)
+                                      (bt:with-lock-held (lock)
+                                        (push (cons k v) seen))
+                                      :remove)
+                                 :threads 4 :as :string))
+      (is (every (lambda (r) (equal (car r) (cdr r))) seen))
+      (is (equal (loop for i below 2000 collect (keyed i))
+                 (sort (mapcar #'car seen) #'string<)))
+      (is (= 2000 (db-count db))))))
+
+(def-db-test scan-parallel-passes-on-visitor-errors
+  (with-temp-db (db)
+    (dotimes (i 100)
+      (db-set db (keyed i) "v"))
+    (signals simple-error
+      (db-scan-parallel db (lambda (k v)
+                             (declare (ignore k v))
+                             (error "boom"))))
+    (signals invalid-argument (db-scan-parallel db (answer :nop) :threads 0))
+    (is (= 100 (db-count db)))))
+
+(def-db-test cursor-accept-visits-the-current-record
+  (with-temp-db (db)
+    (dotimes (i 10)
+      (db-set db (keyed i) "v"))
+    (with-cursor (cur db)
+      (cursor-jump cur)
+      (let ((n 0))
+        (loop while (cursor-accept cur (lambda (k v)
+                                         (declare (ignore k))
+                                         (incf n)
+                                         (concatenate 'string v "!"))
+                                   :step t :as :string))
+        (is (= 10 n)))
+      (is (every (lambda (i) (equal "v!" (db-get db (keyed i) :as :string)))
+                 (loop for i below 10 collect i)))
+      (cursor-jump cur)
+      (loop while (cursor-accept cur (answer :remove)))
+      (is (= 0 (db-count db)))
+      (is (null (cursor-accept cur (answer :nop))))
+      (is (eq :no-record (db-error db))))))
+
+(def-db-test iterate-errors-leave-the-database-usable
+  (with-temp-db (db)
+    (dotimes (i 10)
+      (db-set db (keyed i) "v"))
+    (signals simple-error
+      (db-iterate db (lambda (k v)
+                       (declare (ignore k v))
+                       (error "boom"))))
+    (is-true (db-set db "after" "x"))
+    (is (= 11 (db-count db)))))

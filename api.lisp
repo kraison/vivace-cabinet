@@ -169,3 +169,19 @@ present, in the order asked."))
 
 (defgeneric db-remove-bulk (db keys &key atomic)
   (:documentation "Remove KEYS; the number removed, or NIL."))
+
+(defgeneric db-iterate (db visitor &key writable as)
+  (:documentation "Visit every record, holding the whole database: other
+threads wait until it ends, as in Kyoto Cabinet.  T, or NIL with
+:NO-PERMISSION for a writable iteration on a reader."))
+
+(defgeneric db-scan-parallel (db visitor &key threads as)
+  (:documentation "Visit every record from THREADS threads (4) at once,
+read-only: VISITOR's answers are ignored.  An error in VISITOR is
+signalled again here."))
+
+(defgeneric cursor-accept (cursor visitor &key writable step as)
+  (:documentation "DB-ACCEPT on the cursor's record, then CURSOR-STEP
+when STEP.  T, or NIL with :NO-RECORD when the cursor is on none."))
+
+(defgeneric %cursor-db (cursor))

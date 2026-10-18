@@ -80,3 +80,22 @@
           (when v
             (setf (%tc-key c) (%tc-find c #'engine-ceiling k t))
             (values (from-octets k as) (from-octets v as)))))))
+
+(defmethod %cursor-db ((c tree-cursor))
+  (%tc-db c))
+
+(defmethod %key-batches ((db tree-db))
+  (let ((e (tree-db-engine db))
+        (lock (make-lock "tree key batches"))
+        (last nil)
+        (done nil))
+    (lambda ()
+      (with-lock-held (lock)
+        (unless done
+          (let ((batch (loop repeat 256
+                             for k = (engine-ceiling e last (and last t))
+                             while k
+                             collect (setf last k))))
+            (unless batch
+              (setf done t))
+            batch))))))
