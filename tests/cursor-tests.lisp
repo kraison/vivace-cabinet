@@ -135,3 +135,24 @@ and steps act on the next record, as Kyoto's do."
       (db-remove db (keyed 3))
       (is-true (cursor-step cur))
       (is (equal (keyed 5) (cursor-get-key cur :as :string))))))
+
+(def-tree-test cursor-get-steps-the-way-it-last-moved
+  "CURSOR-GET with :STEP reads the current record, then moves past it
+the way the cursor last moved, as Kyoto's get does."
+  (with-temp-db (db)
+    (dotimes (i 5)
+      (db-set db (keyed i) "v"))
+    (with-cursor (cur db)
+      (cursor-jump-back cur (keyed 3))
+      (is (equal (keyed 3) (cursor-get-key cur :as :string :step t)))
+      (is (equal (keyed 2) (cursor-get-key cur :as :string)))
+      (cursor-jump cur (keyed 1))
+      (is (equal (keyed 1) (cursor-get-key cur :as :string :step t)))
+      (is (equal (keyed 2) (cursor-get-key cur :as :string)))
+      (cursor-jump cur (keyed 4))
+      (is (equal (keyed 4) (cursor-get-key cur :as :string :step t)))
+      (is (null (cursor-get-key cur)))
+      (cursor-jump-back cur (keyed 3))
+      (db-remove db (keyed 3))
+      (is (equal (keyed 4) (cursor-get-key cur :as :string :step t)))
+      (is (equal (keyed 2) (cursor-get-key cur :as :string))))))

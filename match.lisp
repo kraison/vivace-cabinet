@@ -19,9 +19,8 @@
 the first record, until FN returns :STOP."
   (with-cursor (cur db)
     (when (cursor-jump cur from)
-      (loop for k = (cursor-get-key cur)
-            while (and k (not (eq :stop (funcall fn k))))
-            while (cursor-step cur)))))
+      (loop for k = (cursor-get-key cur :step t)
+            while (and k (not (eq :stop (funcall fn k))))))))
 
 (defun %key-text (k)
   (babel:octets-to-string k :encoding :utf-8 :errorp nil))

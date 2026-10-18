@@ -106,21 +106,24 @@ past the end."))
 (defgeneric cursor-step-back (cursor)
   (:documentation "Move to the previous record.  T, or NIL with
 :NO-RECORD before the start."))
-(defgeneric cursor-get (cursor &key as)
+(defgeneric cursor-get (cursor &key as step)
   (:documentation "The current record's key and value, or NIL with
-:NO-RECORD."))
+:NO-RECORD.  With STEP, the cursor then moves past the record the way it
+last moved, in the same call: a walk that reads with STEP misses nothing
+another thread leaves alone."))
 (defgeneric cursor-set-value (cursor value))
 (defgeneric cursor-remove (cursor)
-  (:documentation "Remove the current record and move to the next."))
+  (:documentation "Remove the current record and move past it the way
+the cursor last moved."))
 (defgeneric cursor-seize (cursor &key as)
-  (:documentation "Remove the current record, move to the next and return
-the removed key and value."))
+  (:documentation "Remove the current record, move past it the way the
+cursor last moved, and return the removed key and value."))
 
-(defun cursor-get-key (cursor &key (as :octets))
-  (values (cursor-get cursor :as as)))
+(defun cursor-get-key (cursor &key (as :octets) step)
+  (values (cursor-get cursor :as as :step step)))
 
-(defun cursor-get-value (cursor &key (as :octets))
-  (nth-value 1 (cursor-get cursor :as as)))
+(defun cursor-get-value (cursor &key (as :octets) step)
+  (nth-value 1 (cursor-get cursor :as as :step step)))
 
 (defgeneric %release-cursor (cursor)
   (:documentation "Free what CURSOR holds outside Lisp; WITH-CURSOR
@@ -194,8 +197,9 @@ read-only: VISITOR's answers are ignored.  An error in VISITOR is
 signalled again here."))
 
 (defgeneric cursor-accept (cursor visitor &key writable step as)
-  (:documentation "DB-ACCEPT on the cursor's record, then CURSOR-STEP
-when STEP.  T, or NIL with :NO-RECORD when the cursor is on none."))
+  (:documentation "DB-ACCEPT on the cursor's record.  With STEP, or when
+a writable visit removes the record, the cursor then moves past it the
+way it last moved.  T, or NIL with :NO-RECORD when it is on none."))
 
 (defgeneric %cursor-db (cursor))
 

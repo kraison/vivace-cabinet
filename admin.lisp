@@ -109,13 +109,11 @@ linear hash's index files are mostly holes."
         (with-cursor (cur src)
           (when (cursor-jump cur)
             (loop
-              (multiple-value-bind (k v) (cursor-get cur)
+              (multiple-value-bind (k v) (cursor-get cur :step t)
                 (unless k
                   (return))
                 (ecase mode
                   (:set (db-set db k v))
                   (:add (db-add db k v))
                   (:replace (db-replace db k v))
-                  (:append (db-append db k v))))
-              (unless (cursor-step cur)
-                (return))))))))
+                  (:append (db-append db k v))))))))))

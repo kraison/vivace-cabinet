@@ -109,12 +109,13 @@ holds the database lock."
       t
       (%fail (%hc-db c) :no-record)))
 
-(defmethod cursor-get ((c hash-cursor) &key (as :octets))
+(defmethod cursor-get ((c hash-cursor) &key (as :octets) step)
   (check-as as)
   (multiple-value-bind (k v) (%cursor-current c)
-    (if k
-        (values (from-octets k as) (from-octets v as))
-        (%fail (%hc-db c) :no-record))))
+    (cond ((null k) (%fail (%hc-db c) :no-record))
+          (t (when step
+               (%cursor-pass c k))
+             (values (from-octets k as) (from-octets v as))))))
 
 (defmethod cursor-set-value ((c hash-cursor) value)
   (let ((v (to-octets value)))

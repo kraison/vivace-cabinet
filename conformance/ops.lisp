@@ -75,5 +75,5 @@ only on a TreeDB: a HashDB's order is its own in each library."
       (27 `(:cursor-jump-back ,(maybe k)))
       ((28 29) '(:cursor-step))
       (30 '(:cursor-step-back))
-      (t (pick `((:cursor-get) (:cursor-get) (:cursor-set-value ,v)
+      (t (pick `((:cursor-get) (:cursor-get-step) (:cursor-set-value ,v)
                  (:cursor-remove) (:cursor-seize)))))))

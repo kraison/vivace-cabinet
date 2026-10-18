@@ -63,12 +63,13 @@
       (%tc-place c (%tc-find c #'engine-floor (%tc-key c) t) t)
       (%fail (%tc-db c) :no-record)))
 
-(defmethod cursor-get ((c tree-cursor) &key (as :octets))
+(defmethod cursor-get ((c tree-cursor) &key (as :octets) step)
   (check-as as)
   (multiple-value-bind (k v) (%cursor-current c)
-    (if k
-        (values (from-octets k as) (from-octets v as))
-        (%fail (%tc-db c) :no-record))))
+    (cond ((null k) (%fail (%tc-db c) :no-record))
+          (t (when step
+               (%cursor-pass c k))
+             (values (from-octets k as) (from-octets v as))))))
 
 (defmethod cursor-set-value ((c tree-cursor) value)
   (let ((v (to-octets value)))

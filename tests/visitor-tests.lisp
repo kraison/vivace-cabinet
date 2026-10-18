@@ -329,3 +329,62 @@ jumps again."
       (is (null (cursor-step cur)))
       (is-true (cursor-jump cur))
       (is (equal "w" (cursor-get-value cur :as :string))))))
+
+(def-db-test walks-see-every-untouched-record
+  "While another thread removes and re-adds other records, a match, a
+merge and a cursor walk that reads with :STEP see every record nothing
+touches."
+  (with-temp-directory (dir)
+    (with-test-db (db (merge-pathnames "w.vc/" dir))
+      (with-test-db (m (merge-pathnames "m.vc/" dir))
+        (dotimes (i 400)
+          (db-set db (keyed i) "v"))
+        (let* ((stop nil)
+               (errors '())
+               (missed 0)
+               (churn (bt:make-thread
+                       (lambda ()
+                         (handler-case
+                             (loop for i from 1 by 2
+                                   until stop
+                                   do (let ((k (keyed (mod i 400))))
+                                        (db-remove db k)
+                                        (db-set db k "v")))
+                           (error (c)
+                             (push (princ-to-string c) errors)))))))
+          (flet ((count-missed (keys)
+                   (let ((seen (make-hash-table :test 'equal)))
+                     (dolist (k keys)
+                       (setf (gethash k seen) t))
+                     (loop for i below 400 by 2
+                           unless (gethash (keyed i) seen)
+                             do (incf missed)))))
+            (unwind-protect
+                 (dotimes (round 60)
+                   (count-missed (db-match-prefix db "" :as :string))
+                   (count-missed
+                    (with-cursor (c db)
+                      (when (cursor-jump c)
+                        (loop for k = (cursor-get-key c :as :string :step t)
+                              while k
+                              collect k))))
+                   (when (zerop (mod round 10))
+                     (db-clear m)
+                     (db-merge m (list db))
+                     (count-missed (db-match-prefix m "" :as :string))))
+              (setf stop t)
+              (bt:join-thread churn)))
+          (is (null errors) "~s" errors)
+          (is (zerop missed) "~d untouched records missed" missed))))))
+
+(def-db-test read-only-cursor-accept-stays-put
+  "A read-only CURSOR-ACCEPT whose visitor answers :REMOVE removes
+nothing and leaves the cursor where it was."
+  (with-temp-db (db)
+    (db-set db "a" "v")
+    (db-set db "b" "v")
+    (with-cursor (cur db)
+      (cursor-jump cur "a")
+      (is-true (cursor-accept cur (answer :remove) :writable nil))
+      (is (= 2 (db-count db)))
+      (is (equal "a" (cursor-get-key cur :as :string))))))

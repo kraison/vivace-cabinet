@@ -61,24 +61,30 @@ not file sizes (the index files are sparse).
 
     (vivace-cabinet:with-cursor (cur db)
       (when (vivace-cabinet:cursor-jump cur)
-        (loop do (print (vivace-cabinet:cursor-get-key cur :as :string))
-              while (vivace-cabinet:cursor-step cur))))
+        (loop for k = (vivace-cabinet:cursor-get-key cur :as :string :step t)
+              while k
+              do (print k))))
 
-`cursor-jump` moves to the first record, or on a TreeDB to the first at
-or after a key; `cursor-jump-back` to the last, or the last at or before
-a key; `cursor-step` and `cursor-step-back` move one record.
-`cursor-get` returns the current key and value (`cursor-get-key` and
-`cursor-get-value` one of them), `cursor-set-value` replaces the value,
-and `cursor-remove` and `cursor-seize` remove the record and move to the
-next (after a backward move, to the previous). A move past either end
+`cursor-jump` moves to the first record, or on a TreeDB to the first at or
+after a key; `cursor-jump-back` to the last, or the last at or before a
+key; `cursor-step` and `cursor-step-back` move one record. `cursor-get`
+returns the current key and value (`cursor-get-key` and `cursor-get-value`
+one of them), `cursor-set-value` replaces the value, and `cursor-remove`
+and `cursor-seize` remove the record and move to the next (after a
+backward move, to the previous). With `:step t`, `cursor-get`,
+`cursor-get-key` and `cursor-get-value` read the record and then move past
+it the way the cursor last moved, in one call. A move past either end
 returns NIL with `:no-record`. Cursors behave as Kyoto Cabinet's do. If
 another call removes a cursor's record, the cursor's next read, edit or
-step acts on the record after it, whichever way the cursor last moved,
-so a backward walk can read a record twice while other threads remove
-records. `db-clear` leaves every cursor on no record until it jumps
-again. A TreeDB cursor holds its position as a key, so other threads'
-changes leave it valid. Give each thread its own cursor; `with-cursor`
-releases its cursor when its body exits.
+step acts on the record after it, whichever way the cursor last moved, so
+a backward walk can read a record twice while other threads remove
+records, and a read followed by a separate `cursor-step` can skip a record
+removed in between. A walk that reads with `:step t` misses no record that
+other threads leave alone; the matches and `db-merge` walk that way.
+`db-clear` leaves every cursor on no record until it jumps again. A TreeDB
+cursor holds its position as a key, so other threads' changes leave it
+valid. Give each thread its own cursor; `with-cursor` releases its cursor
+when its body exits.
 
 A HashDB cursor moves forward only, in no useful order, as in Kyoto
 Cabinet: `cursor-jump-back` and `cursor-step-back` signal
@@ -138,12 +144,12 @@ records by `:mode` (`:set`, `:add`, `:replace` or `:append`), one source
 after another, so under `:set` a key in several sources takes the last
 one's value.
 
-`db-dump-snapshot` writes every record to one file, and
-`db-load-snapshot` stores a snapshot's records into a database of either
-type. A dump goes through `PATH.tmp`, so one that fails leaves the
-snapshot already at `PATH` as it was. The format is vivace-cabinet's own: 8 magic bytes, then each
-record's key length and value length (8 bytes each, little-endian), key
-and value, and a key length of 2^64-1 at the end.
+`db-dump-snapshot` writes every record to one file, and `db-load-snapshot`
+stores a snapshot's records into a database of either type. A dump goes
+through `PATH.tmp`, so one that fails leaves the snapshot already at
+`PATH` as it was. The format is vivace-cabinet's own: 8 magic bytes, then
+each record's key length and value length (8 bytes each, little-endian),
+key and value, and a key length of 2^64-1 at the end.
 
 Version 1 has no transactions: `db-begin-transaction`,
 `db-begin-transaction-try`, `db-end-transaction` and `with-transaction`

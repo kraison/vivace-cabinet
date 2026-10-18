@@ -64,6 +64,7 @@ in an order both libraries share."
         (:cursor-step (cursor-step cursor))
         (:cursor-step-back (cursor-step-back cursor))
         (:cursor-get (multiple-value-list (cursor-get cursor)))
+        (:cursor-get-step (multiple-value-list (cursor-get cursor :step t)))
         (:cursor-set-value (cursor-set-value cursor (first args)))
         (:cursor-remove (cursor-remove cursor))
         (:cursor-seize (multiple-value-list (cursor-seize cursor)))))))

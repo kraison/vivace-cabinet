@@ -70,10 +70,10 @@ value) AS, or NIL."
                                   as))
           (kyoto-cabinet-ffi:kcfree kp))))))
 
-(defmethod cursor-get ((c kyoto-cursor) &key (as :octets))
+(defmethod cursor-get ((c kyoto-cursor) &key (as :octets) step)
   (check-as as)
   (%record (lambda (ksp vbp vsp)
-             (kyoto-cabinet-ffi:kccurget (%cur c) ksp vbp vsp nil))
+             (kyoto-cabinet-ffi:kccurget (%cur c) ksp vbp vsp step))
            as))
 
 (defmethod cursor-seize ((c kyoto-cursor) &key (as :octets))

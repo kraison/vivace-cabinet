@@ -112,15 +112,17 @@ the reason."
 (defmethod cursor-accept (cursor visitor &key (writable t) step
                                               (as :octets))
   (check-as as)
-  (let ((removed nil))
-    (and (%cursor-edit cursor
-                       (lambda (k v)
-                         (let ((answer (funcall visitor (from-octets k as)
-                                                (from-octets v as))))
-                           (when (eq answer :remove)
-                             (setf removed k))
-                           answer))
-                       :writable writable)
-         (progn (cond (removed (%cursor-pass cursor removed))
-                      (step (cursor-step cursor)))
+  (let* ((removed nil)
+         (k (%cursor-edit cursor
+                          (lambda (k v)
+                            (let ((answer (funcall visitor
+                                                   (from-octets k as)
+                                                   (from-octets v as))))
+                              (when (and writable (eq answer :remove))
+                                (setf removed t))
+                              answer))
+                          :writable writable)))
+    (and k
+         (progn (when (or removed step)
+                  (%cursor-pass cursor k))
                 t))))
