@@ -238,11 +238,14 @@ FFI calls, for the operations the benchmark uses.
 
 - Kyoto runs with transactions and autosync off, matching vivace-cabinet
   version 1.
-- Each engine runs twice: on defaults, and tuned for N. Tuned means Kyoto's
-  bucket count (`bnum`) set as its documentation advises, twice N for
-  HashDB and a tenth of N for TreeDB, and the linear hash's initial
-  `:buckets` set so N records fit without splitting. vivace-cabinet's
-  TreeDB has no bucket count, so it runs on defaults only.
+- Each engine runs twice: on defaults, and tuned for N. Tuned means Kyoto
+  set as its documentation (`doc/spex.html`) advises for N records: the
+  bucket count (`bnum`), twice N for HashDB and a tenth of N for TreeDB,
+  with linear collision chains, and a memory map (`msiz`), and for
+  TreeDB a page cache (`pccap`), larger than the database. For the
+  linear hash, its initial `:buckets` is set so N records fit without
+  splitting. vivace-cabinet's TreeDB has no bucket count, so it runs on
+  defaults only.
 - Each run starts from a fresh database on a real disk, not tmpfs, and is
   repeated 5 times; results report the median and the spread.
 
