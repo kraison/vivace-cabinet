@@ -744,10 +744,11 @@ root and drop a level."
 
 (defun bpt-remove (tree dkey &optional (sval nil sval-p) value-equal)
   "Remove DKEY from its leaf.  With SVAL given, only remove when
-VALUE-EQUAL (default: the tree's, which expects values, not octets)
-holds of SVAL and the stored value's octets.  Returns T if a key was
-removed.  Merges underfull pages on the way up and collapses a
-degenerate root."
+VALUE-EQUAL, called with SVAL and the stored value's octets, is true.
+It defaults to the tree's VALUE-EQUAL, which then gets octets too, so
+a caller comparing values passes its own, as REMOVE-FROM-SKIP-LIST
+does.  Returns T if a key was removed.  Merges underfull pages on the
+way up and collapses a degenerate root."
   (with-bpt-write-lock (tree)
     (if sval-p
         (%bpt-remove-top tree dkey sval value-equal)
