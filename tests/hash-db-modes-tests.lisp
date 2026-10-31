@@ -183,3 +183,36 @@ count; the next open counts the records again, chains included."
         (is (eq :hash (getf header :type)))
         (is (= 1 (getf header :count)))
         (is (null (getf header :open)))))))
+
+(defun mapping-permissions (dir)
+  "The permission column of each line of /proc/self/maps that names a
+file under DIR, or :UNKNOWN where there is no /proc."
+  (if (probe-file "/proc/self/maps")
+      (let ((prefix (namestring (truename dir))))
+        (with-open-file (in "/proc/self/maps")
+          (loop for line = (read-line in nil)
+                while line
+                when (search prefix line)
+                  collect (second (uiop:split-string line :separator " ")))))
+      :unknown))
+
+(def-db-test readers-map-read-only
+  "A reader maps the files read-only (#6), so it opens a database whose
+files it may not write; on Linux /proc/self/maps shows the protection."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "ro.vch/" dir)))
+      (with-test-db (db path)
+        (db-set db "k" "v")
+        (let ((perms (mapping-permissions path)))
+          (unless (eq perms :unknown)
+            (is (member "rw-s" perms :test #'equal)))))
+      (uiop:run-program (list "chmod" "-R" "a-w" (namestring path)))
+      (unwind-protect
+           (with-test-db (db path :mode '(:reader))
+             (is (equal "v" (db-get db "k" :as :string)))
+             (is (= 1 (db-count db)))
+             (let ((perms (mapping-permissions path)))
+               (unless (eq perms :unknown)
+                 (is (and perms (every (lambda (p) (equal p "r--s")) perms))
+                     "a reader's mappings: ~a" perms))))
+        (uiop:run-program (list "chmod" "-R" "u+w" (namestring path)))))))

@@ -245,17 +245,20 @@
       byte)))
 
 (defun open-memory (location &key (extent-size (* 1024 1024 100))
-                               (accept-versions (list +storage-version+)))
+                               (accept-versions (list +storage-version+))
+                               (writable t))
   "Open the memory-mapped region at LOCATION.  ACCEPT-VERSIONS is the list of
 on-disk storage-format versions this open will tolerate (default: only the
 current build's version).  MIGRATE-GRAPH passes the older version(s) so it can
-read a pre-MVCC graph for logical backup."
+read a pre-MVCC graph for logical backup.  WRITABLE NIL maps the file
+read-only (#6)."
   (let ((memory
          (make-memory :location location
                       :data-offset +memory-usable-offset+
                       :extent-size extent-size
                       :lock (make-rw-lock)
-                      :mmap (mmap-file location :create-p nil))))
+                      :mmap (mmap-file location :create-p nil
+                                                :writable writable))))
     (let ((byte (memory-magic-byte-corrupt-p memory)))
       (when byte
         (munmap-file (memory-mmap memory))

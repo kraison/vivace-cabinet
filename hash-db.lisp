@@ -50,14 +50,17 @@ collisions; a database must keep one digest function for life.")
             (hash-db-record-count db) 0))))
 
 (defmethod %open-storage ((db hash-db) header)
-  "Open the heap and the index, recounting the records if a writer left
-them open."
+  "Open the heap and the index, read-only for a reader, recounting the
+records if a writer left them open."
   (destructuring-bind (&key heap-reservation &allow-other-keys)
       (%db-tuning db)
-    (let ((dir (%db-dir db)))
+    (let ((dir (%db-dir db))
+          (writable (%db-writable-p db)))
       (setf (%db-heap db) (let ((*mmap-min-reservation* heap-reservation))
-                            (open-memory (namestring (%heap-file dir))))
-            (hash-db-index db) (open-lhash (%index-dir dir))
+                            (open-memory (namestring (%heap-file dir))
+                                         :writable writable))
+            (hash-db-index db) (open-lhash (%index-dir dir)
+                                           :writable writable)
             (hash-db-record-count db) (if (getf header :open)
                                           (%count-records db)
                                           (getf header :count))))))

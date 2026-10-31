@@ -327,21 +327,25 @@
             #+ecl (mp:make-lock :recursive t)))
     lhash))
 
-(defun open-lhash (location)
+(defun open-lhash (location &key (writable t))
   "Open the lhash persisted under LOCATION.  The struct restored from
 STRUCT.DAT records the location it was CREATED at; it is reset to LOCATION
 here, because a path inside a persisted structure says where it was made,
-not where it now lives -- and DELETE-LHASH trusts it for a write (GH #143)."
+not where it now lives -- and DELETE-LHASH trusts it for a write (GH #143).
+WRITABLE NIL maps the three files read-only (#6)."
   (let ((lhash (cl-store:restore (merge-pathnames "struct.dat" location))))
     (setf (%lhash-location lhash) location)
     (handler-case
         (progn
           (setf (%lhash-config lhash)
-                (mmap-file (merge-pathnames "config.dat" location) :create-p nil)
+                (mmap-file (merge-pathnames "config.dat" location)
+                           :create-p nil :writable writable)
                 (%lhash-table lhash)
-                (mmap-file (merge-pathnames "table.dat" location) :create-p nil)
+                (mmap-file (merge-pathnames "table.dat" location)
+                           :create-p nil :writable writable)
                 (%lhash-overflow lhash)
-                (mmap-file (merge-pathnames "overflow.dat" location) :create-p nil)
+                (mmap-file (merge-pathnames "overflow.dat" location)
+                           :create-p nil :writable writable)
                 (%lhash-count-lock lhash) (make-rw-lock)
                 (%lhash-split-lock lhash) (make-rw-lock)
                 (%lhash-overflow-lock lhash) (make-rw-lock)

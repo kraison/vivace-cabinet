@@ -24,14 +24,16 @@
   (engine-count (tree-db-engine db)))
 
 (defun %open-heap (db create)
-  "Create or open DB's heap within its address-space reservation."
+  "Create or open DB's heap within its address-space reservation; a
+reader's is mapped read-only."
   (destructuring-bind (&key heap-size heap-reservation &allow-other-keys)
       (%db-tuning db)
     (let ((*mmap-min-reservation* heap-reservation)
           (file (namestring (%heap-file (%db-dir db)))))
       (setf (%db-heap db) (if create
                               (create-memory file heap-size)
-                              (open-memory file))))))
+                              (open-memory file :writable
+                                           (%db-writable-p db)))))))
 
 (defmethod %create-storage ((db tree-db))
   (destructuring-bind (&key engine page-size comparator &allow-other-keys)

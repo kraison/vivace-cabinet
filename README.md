@@ -26,7 +26,8 @@ signals `invalid-argument` on bytes that are not UTF-8. One handle may
 have a database open for writing, or any number for reading, in this
 process or others; an open that conflicts signals `open-error` (an
 advisory `flock` on the directory, which network filesystems may not
-honour).
+honour). A reader maps the files read-only, so it can open a database
+whose files it may not write.
 
 `open-db` takes `:mode`, a list of `:reader` or `:writer` plus any of
 `:create`, `:truncate`, `:autosync` (default `(:writer :create)`), and
@@ -231,8 +232,6 @@ tracing on.
 - **Skip-list cursors can miss a key being replaced.** The skip-list
   engine replaces a value by removing and re-adding its record, so a
   cursor passing that key at that moment does not see it.
-- **Readers need write permission.** Files are mapped read-write even
-  for `:reader`, so a reader that may not write them gets `open-error`.
 - **Appending copies the value.** `db-append` writes a new record each
   time, and the heap keeps freed records of the sizes a value passed
   through: a value grown 1000 bytes at a time to 300 KB leaves about
