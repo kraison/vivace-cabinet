@@ -35,7 +35,8 @@ tuning keywords: `:buckets` and `:max-locks` for the index, `:heap-size`,
 and `:heap-reservation` (default 64 GiB of address space the heap may
 grow into in one session). A writer's `:truncate` empties the database,
 or discards one left incomplete by a crash while creating; opening an
-incomplete database otherwise signals `open-error`.
+incomplete database otherwise signals `open-error`, as does opening one
+whose files are shorter than their contents say.
 
 A TreeDB keeps its records in key order:
 

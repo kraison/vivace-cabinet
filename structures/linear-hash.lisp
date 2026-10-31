@@ -376,6 +376,7 @@ WRITABLE NIL maps the three files read-only (#6)."
                 (deserialize-uint64 (%lhash-config lhash) +lhash-bucket-bytes-offset+)
                 (%lhash-null-key lhash)
                 (funcall (%lhash-key-deserializer lhash) (%lhash-config lhash) +lhash-null-key-offset+))
+          (%check-lhash-lengths lhash)
           (dotimes (i (%lhash-max-locks lhash))
             (setf (svref (%lhash-lock-vector lhash) i)
                   #+sbcl (sb-thread:make-mutex)
@@ -390,6 +391,22 @@ WRITABLE NIL maps the three files read-only (#6)."
             (munmap-file mf)))
         (error c)))
     lhash))
+
+(defun %check-lhash-lengths (lhash)
+  "Signal if any of LHASH's three files is shorter than what its config
+says is in use: a truncated file would read as empty or fault (#6)."
+  (flet ((check (name mf need)
+           (let ((have (mapped-file-length mf)))
+             (when (< have need)
+               (error "~A ~A is ~D bytes long; its contents need ~D"
+                      (%lhash-location lhash) name have need)))))
+    (check "config.dat" (%lhash-config lhash)
+           (+ (* 8 8) (%lhash-key-bytes lhash)))
+    (check "table.dat" (%lhash-table lhash)
+           (1+ (* (%bucket-count lhash) (%lhash-bucket-bytes lhash))))
+    (check "overflow.dat" (%lhash-overflow lhash)
+           (+ (%lhash-next-overflow-pointer lhash)
+              (%lhash-bucket-bytes lhash)))))
 
 (defun close-lhash (lhash)
   (munmap-file (%lhash-config lhash) :save-p t)

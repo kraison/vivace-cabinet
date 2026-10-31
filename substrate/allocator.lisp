@@ -252,27 +252,40 @@ on-disk storage-format versions this open will tolerate (default: only the
 current build's version).  MIGRATE-GRAPH passes the older version(s) so it can
 read a pre-MVCC graph for logical backup.  WRITABLE NIL maps the file
 read-only (#6)."
-  (let ((memory
-         (make-memory :location location
-                      :data-offset +memory-usable-offset+
-                      :extent-size extent-size
-                      :lock (make-rw-lock)
-                      :mmap (mmap-file location :create-p nil
-                                                :writable writable))))
-    (let ((byte (memory-magic-byte-corrupt-p memory)))
-      (when byte
-        (munmap-file (memory-mmap memory))
-        (error "~A is not a memory file: magic byte 0x~X" location byte)))
-    (let ((found (get-byte (memory-mmap memory) +memory-storage-version-offset+)))
-      (unless (member found accept-versions)
-        (munmap-file (memory-mmap memory))
-        (error "~A is storage format v~D but this build expects v~D. ~
-Older graphs must be migrated first -- see MIGRATE-GRAPH (snapshot + replay)."
-               location found +storage-version+)))
-    (setf (memory-pointer memory) (read-memory-pointer memory)
-          (memory-size memory) (size-of (memory-mmap memory)))
-    (init-free-list memory)
-    memory))
+  (let* ((mmap (mmap-file location :create-p nil :writable writable))
+         (memory (make-memory :location location
+                              :data-offset +memory-usable-offset+
+                              :extent-size extent-size
+                              :lock (make-rw-lock)
+                              :mmap mmap))
+         (ok nil))
+    ;; Whatever fails below, the mapping must not outlive this call (#6).
+    (unwind-protect
+         (progn
+           (let ((byte (memory-magic-byte-corrupt-p memory)))
+             (when byte
+               (error "~A is not a memory file: magic byte 0x~X"
+                      location byte)))
+           (let ((found (get-byte mmap +memory-storage-version-offset+)))
+             (unless (member found accept-versions)
+               (error "~A is storage format v~D but this build expects ~
+v~D. Older graphs must be migrated first -- see MIGRATE-GRAPH (snapshot ~
++ replay)."
+                      location found +storage-version+)))
+           (let ((size (size-of mmap))
+                 (pointer (read-memory-pointer memory)))
+             ;; A file shorter than its own pointer was truncated: reading
+             ;; the records past its end would fault (#6).
+             (unless (<= +memory-usable-offset+ pointer size)
+               (error "~A is ~D bytes long but its allocations end at ~D"
+                      location size pointer))
+             (setf (memory-pointer memory) pointer
+                   (memory-size memory) size))
+           (init-free-list memory)
+           (setf ok t)
+           memory)
+      (unless ok
+        (munmap-file mmap)))))
 
 (defun free (memory allocation-data-offset)
   ;; allocation-data-offset is the beginning of the user-accessible

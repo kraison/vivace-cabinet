@@ -216,3 +216,46 @@ files it may not write; on Linux /proc/self/maps shows the protection."
                  (is (and perms (every (lambda (p) (equal p "r--s")) perms))
                      "a reader's mappings: ~a" perms))))
         (uiop:run-program (list "chmod" "-R" "u+w" (namestring path)))))))
+
+(defun truncate-file (path n)
+  "Cut the file at PATH down to its first N bytes."
+  (let ((head (make-array n :element-type '(unsigned-byte 8))))
+    (with-open-file (in path :element-type '(unsigned-byte 8))
+      (read-sequence head in))
+    (with-open-file (out path :direction :output :if-exists :supersede
+                              :element-type '(unsigned-byte 8))
+      (write-sequence head out))))
+
+(defun fill-db (path n)
+  "A database at PATH holding N records of 100 bytes."
+  (with-test-db (db path)
+    (dotimes (i n)
+      (db-set db (keyed i) (make-string 100 :initial-element #\x)))))
+
+(test truncated-index-signals
+  "An index file shorter than its bucket count or overflow pointer says
+signals OPEN-ERROR instead of reading as empty or faulting (#6)."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "ti.vch/" dir)))
+      (fill-db path 200)
+      (truncate-file (merge-pathnames "index/table.dat" path) 1000)
+      (signals open-error (open-db path))
+      (signals open-error (open-db path :mode '(:reader))))
+    (let ((path (merge-pathnames "to.vch/" dir)))
+      (fill-db path 200)
+      (truncate-file (merge-pathnames "index/overflow.dat" path) 1)
+      (signals open-error (open-db path)))
+    (let ((path (merge-pathnames "tcf.vch/" dir)))
+      (fill-db path 200)
+      (truncate-file (merge-pathnames "index/config.dat" path) 70)
+      (signals open-error (open-db path)))))
+
+(def-db-test truncated-heap-signals
+  "A heap shorter than its own allocation pointer signals OPEN-ERROR at
+open rather than a memory fault at the first lookup past its end (#6)."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "th.vch/" dir)))
+      (fill-db path 2000)
+      (truncate-file (merge-pathnames "heap.dat" path) 100000)
+      (signals open-error (open-test-db path))
+      (signals open-error (open-test-db path :mode '(:reader))))))
