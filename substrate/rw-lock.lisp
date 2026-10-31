@@ -13,16 +13,18 @@
 ;;;;   write release" scheme, each queued writer carries its OWN private wake
 ;;;;   semaphore, and readers share a single condition variable:
 ;;;;     * On write release, if a writer is queued we signal EXACTLY the front
-;;;;       writer's semaphore (one wakeup, FIFO).  A semaphore is level-triggered,
-;;;;       so a signal that lands before the writer parks is not lost.
+;;;;       writer's semaphore (one wakeup, FIFO).  A semaphore is
+;;;;       level-triggered, so a signal that lands before the writer parks is
+;;;;       not lost.
 ;;;;     * If no writer is queued, we broadcast the reader cv once, letting all
 ;;;;       waiting readers proceed together (O(R) once, never O(N^2)).
 ;;;;   The per-lock `semaphore' slot is unchanged: it is the "readers have
-;;;;   drained" signal that the single ACTIVE writer waits on while readers exit.
+;;;;   drained" signal that the single ACTIVE writer waits on while readers
+;;;;   exit.
 ;;;;
 ;;;; Reader eligibility is unchanged from the original: a reader proceeds iff
-;;;; there is no active writer ((null lock-writer)).  This change alters only HOW
-;;;; waiters are woken, never WHO may proceed.
+;;;; there is no active writer ((null lock-writer)).  This change alters only
+;;;; HOW waiters are woken, never WHO may proceed.
 ;;;;
 ;;;; Old ECL (no :graph-db-ecl-modern-mp) keeps the (sleep 0.001) poll fallback
 ;;;; byte-for-byte: no waker is created, the reader cv is never touched, writers
@@ -38,7 +40,8 @@
 ;;; ---------------------------------------------------------------------------
 ;;; Per-writer wake token.  One is created per acquire-write-lock call (never
 ;;; reused), so its waker is signalled at most once and waited on at most once.
-;;; On old ECL the waker is NIL (poll path; ww-signal / ww-wait are never called).
+;;; On old ECL the waker is NIL (poll path; ww-signal / ww-wait are never
+;;; called).
 ;;; ---------------------------------------------------------------------------
 
 (defstruct (writer-wait (:conc-name ww-))
