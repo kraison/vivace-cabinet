@@ -1,6 +1,8 @@
-;;;; The vivace-cabinet package.  Its :use and shadowing follow
-;;;; vivace-graph's graph-db package (package.lisp at 853df62), which the
-;;;; copied code was written against.
+;;;; The vivace-cabinet package.  The copied code was written against
+;;;; vivace-graph's graph-db package (package.lisp at 853df62); of its
+;;;; :use list only CL and bordeaux-threads are needed here, and its
+;;;; shadowing of SB-EXT:WORD on SBCL and of closer-mop on CCL is kept.
+;;;; Its local-time, sb-mop, sb-pcl and clos uses are not (#5).
 
 (defpackage #:vivace-cabinet
   (:use #:cl #:bordeaux-threads)
