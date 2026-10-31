@@ -39,6 +39,9 @@ benchmark also uses.
   matches. Similar-key matches are sorted by both libraries, so they are
   compared as returned. Kyoto returns bulk gets in key order, so both are
   compared in key order.
+- **A negative `:max`.** Kyoto reads it as no limit; vivace-cabinet's
+  matches, and the adapter with them, signal `invalid-argument` (#9).
+  The matches tried use NIL or a positive limit.
 - **An increment landing exactly on the most negative 64-bit integer.**
   Kyoto reports that value as failure (#8). Small steps never reach it.
 - **Regular expressions and key bytes.** The expressions used read alike
