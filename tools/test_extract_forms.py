@@ -2,8 +2,10 @@
 """Tests of extract-forms.py: python3 tools/test_extract_forms.py"""
 import importlib.util
 import os
+import sys
 import unittest
 
+sys.dont_write_bytecode = True  # no tools/__pycache__
 HERE = os.path.dirname(os.path.abspath(__file__))
 SPEC = importlib.util.spec_from_file_location(
     "extract_forms", os.path.join(HERE, "extract-forms.py"))
