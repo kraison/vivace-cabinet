@@ -250,6 +250,12 @@ tracing on.
   operation fails with an undefined function. The engines pass theirs.
 - **Comparators are not stored.** Open a TreeDB with the same
   `:comparator` every time; another order misplaces records silently.
+- **A comparator may equate only identical keys.** Per-key locks and the
+  skip list's nodes go by a key's bytes, so under a comparator that holds
+  two different byte strings equal (a case-insensitive one, say)
+  `db-add`, `db-replace`, `db-append`, `db-seize`, the visitors and
+  compare-and-swap are not atomic between those keys, and skip-list puts
+  of them can collide.
 - **The skip list frees removed records at close.** On the skip-list
   engine, removing or replacing a record unlinks it at once but frees
   its space only at `close-db`.
