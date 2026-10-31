@@ -351,3 +351,24 @@ its cause; one from this library's own refusal has none (#6)."
         (open-error (e)
           (is (typep (open-error-cause e) 'error))
           (is (search "magic" (princ-to-string (open-error-cause e)))))))))
+
+(test close-syncs-the-storage-before-the-clean-header
+  "CLOSE-DB syncs the heap and index to the device while the header
+still says open, and only then writes the clean header hard (#6), so a
+power loss between the two cannot leave a clean header over stale data."
+  (with-temp-directory (dir)
+    (let* ((path (merge-pathnames "co.vch/" dir))
+           (db (open-db path))
+           (seen '())
+           (method (defmethod %sync-storage :around ((db database) hard)
+                     (push (list hard (getf (%read-header (%db-dir db))
+                                            :open))
+                           seen)
+                     (call-next-method))))
+      (unwind-protect
+           (progn
+             (db-set db "k" "v")
+             (close-db db)
+             (is (equal '((t t)) seen)))
+        (remove-method #'%sync-storage method))
+      (is (null (getf (%read-header path) :open))))))

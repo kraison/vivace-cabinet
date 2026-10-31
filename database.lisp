@@ -235,6 +235,10 @@ says.  Returns DB."
   (with-write-lock ((%db-lock db))
     (prog1 (when (%db-open-p db)
              (when (%db-writable-p db)
+               ;; Storage first, as DB-SYNCHRONIZE :HARD orders it: a
+               ;; clean header must never be durable over stale data,
+               ;; or the next open would skip its recount (#6).
+               (%sync-storage db t)
                (%write-header db :hard t))
              (%close-storage db)
              (setf (%db-open-p db) nil)
