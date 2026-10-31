@@ -4,6 +4,13 @@
 
 (in-package #:vivace-cabinet)
 
+(defmacro %with-system-errors (&body body)
+  "Run BODY; a FILE-ERROR or STREAM-ERROR from it signals SYSTEM-ERROR
+(#8), so that file trouble stays within VIVACE-CABINET-ERROR."
+  `(handler-case (progn ,@body)
+     ((or file-error stream-error) (c)
+       (%signal 'system-error "~a" c))))
+
 (defgeneric close-db (db))
 (defgeneric db-set (db key value))
 (defgeneric db-add (db key value))
@@ -162,12 +169,15 @@ afterwards."
   (:documentation "Call VISITOR with KEY and its value (NIL if absent)
 and, when WRITABLE (the default), apply its answer: NIL or :NOP keeps
 the record, :REMOVE removes it, anything else is the new value.  The
-visit is atomic for KEY; VISITOR must not use the database.  T, or NIL
-with :NO-PERMISSION for a writable visit on a reader."))
+visit is atomic for KEY; VISITOR must not use the database, and a call
+on it signals INVALID-ARGUMENT.  T, or NIL with :NO-PERMISSION for a
+writable visit on a reader."))
 
 (defgeneric db-accept-bulk (db keys visitor &key writable as)
-  (:documentation "DB-ACCEPT for each of KEYS in order, atomically for
-all of them."))
+  (:documentation "DB-ACCEPT for each of KEYS in order, holding every
+key's lock for the whole call: isolated from other threads, but not
+all-or-nothing, since VISITOR's error leaves the keys before it
+changed."))
 
 (defgeneric db-cas (db key old new)
   (:documentation "Store NEW under KEY if its value is OLD; OLD NIL means
@@ -179,7 +189,9 @@ when the value is not OLD."))
 integer, and return the result.  An absent key starts at ORIG (0); ORIG
 the most negative 64-bit integer makes an absent key fail, the most
 positive sets the value to NUM.  NIL with :LOGIC when the value is not 8
-bytes, as in Kyoto Cabinet."))
+bytes, as in Kyoto Cabinet.  A result that is exactly the most negative
+integer is stored and returned; Kyoto stores it but reports :LOGIC, that
+being its failure value (#8)."))
 
 (defgeneric db-increment-double (db key num &key orig)
   (:documentation "DB-INCREMENT on a double float kept as Kyoto Cabinet
@@ -190,7 +202,8 @@ fail, positive infinity sets the value to NUM."))
 (defgeneric db-set-bulk (db records &key atomic)
   (:documentation "Store RECORDS, an alist of (key . value); a key given
 twice takes its last value.  The number of keys stored, or NIL.  ATOMIC
-(the default) stores them all at once."))
+(the default) holds every key while it stores them; a failure partway
+leaves the earlier keys stored either way."))
 
 (defgeneric db-get-bulk (db keys &key atomic as)
   (:documentation "An alist of (key . value) for those of KEYS that are
@@ -205,9 +218,12 @@ threads wait until it ends, as in Kyoto Cabinet.  T, or NIL with
 :NO-PERMISSION for a writable iteration on a reader."))
 
 (defgeneric db-scan-parallel (db visitor &key threads as)
-  (:documentation "Visit every record from THREADS threads (4) at once,
-read-only: VISITOR's answers are ignored.  An error in VISITOR is
-signalled again here."))
+  (:documentation "Visit every record from THREADS threads (4; at most
+127, as in Kyoto Cabinet) at once, read-only: VISITOR's answers are
+ignored.  VISITOR runs on new threads, which see special variables'
+global values, not the caller's bindings; BORDEAUX-THREADS's
+*DEFAULT-SPECIAL-BINDINGS* passes bindings to them.  An error in VISITOR
+is signalled again here."))
 
 (defgeneric cursor-accept (cursor visitor &key writable step as)
   (:documentation "DB-ACCEPT on the cursor's record.  With STEP, or when
@@ -246,12 +262,12 @@ characters, else bytes."))
   (:documentation "Call FN with DB's path, record count and size while
 holding DB: exclusively when WRITABLE (the default), else shared with
 other operations.  T, or NIL with :LOGIC when FN returns NIL.  FN must
-not use DB."))
+not use DB; a call on it signals INVALID-ARGUMENT."))
 
 (defgeneric db-copy (db dest)
   (:documentation "Copy DB's files to DEST, a directory that must not
-exist, as a database that opens on its own.  Holes in the index's sparse
-files stay holes."))
+exist, as a database that opens on its own.  Each file keeps its mode,
+and holes in the index's sparse files stay holes, unread."))
 
 (defgeneric db-merge (db sources &key mode)
   (:documentation "Store the records of the databases SOURCES into DB,
@@ -265,8 +281,9 @@ T."))
 
 (defgeneric db-load-snapshot (db path)
   (:documentation "Store every record in the snapshot file PATH.  T, or
-NIL with :NO-PERMISSION on a reader; a file that is not a whole snapshot
-signals INVALID-ARGUMENT."))
+NIL with :NO-PERMISSION on a reader.  The file is read through first, so
+one that is not a whole snapshot signals INVALID-ARGUMENT, and a key too
+long for DB KEY-TOO-LONG, before any record is stored."))
 
 (define-condition transactions-not-implemented (not-implemented) ())
 

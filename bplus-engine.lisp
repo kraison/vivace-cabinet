@@ -214,6 +214,9 @@ K alone when VALUE-P is NIL, so a step reads no value (#7)."
       (multiple-value-bind (k sval) (%bpt-floor tree key strict)
         (%bpe-entry e k sval value-p)))))
 
+(defmethod engine-key-limit ((e bplus-engine))
+  (%bpe-quarter e))
+
 (defmethod engine-address ((e bplus-engine))
   (%bpt-address (%bpe-tree e)))
 

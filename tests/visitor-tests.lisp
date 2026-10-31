@@ -405,3 +405,115 @@ does, and a clear before it does not bring back an older position."
       (db-set db "b" "v")
       (is (null (cursor-jump cur "zz")))
       (is (null (cursor-get-key cur))))))
+
+(defun outcome-within (seconds thunk)
+  "Run THUNK on a thread: :INVALID-ARGUMENT when it signals that,
+:RETURNED when it returns, :SIGNALLED for another error, or :STUCK when
+SECONDS pass first (the thread is then destroyed)."
+  (let* ((outcome :stuck)
+         (thread (bt:make-thread
+                  (lambda ()
+                    (setf outcome
+                          (handler-case (progn (funcall thunk) :returned)
+                            (invalid-argument () :invalid-argument)
+                            (error () :signalled)))))))
+    (finish-within (list thread) seconds)
+    outcome))
+
+(def-db-test visitors-may-not-use-their-database
+  "A visitor, or DB-OCCUPY's function, that calls the database it runs
+for would wait for its own locks; the call signals INVALID-ARGUMENT
+instead, whichever call and whichever kind of visit.  Another database
+is fine."
+  (with-temp-directory (dir)
+    (with-test-db (db (merge-pathnames "v.vc/" dir))
+      (with-test-db (other (merge-pathnames "o.vc/" dir))
+        (db-set db "a" "1")
+        (dolist (call (list (lambda () (db-get db "a"))
+                            (lambda () (db-set db "b" "2"))
+                            (lambda () (db-count db))
+                            (lambda () (db-clear db))
+                            (lambda () (db-iterate db (answer :nop)))
+                            (lambda () (db-scan-parallel db (answer :nop)))
+                            (lambda () (close-db db))))
+          (is (eq :invalid-argument
+                  (outcome-within 10 (lambda ()
+                                       (db-accept db "a"
+                                                  (lambda (k v)
+                                                    (declare (ignore k v))
+                                                    (funcall call)
+                                                    :nop)))))))
+        (flet ((peek (k v)
+                 (declare (ignore k v))
+                 (db-get db "a")
+                 :nop))
+          (dolist (visit (list (lambda () (db-accept-bulk db '("a" "z") #'peek))
+                               (lambda () (db-iterate db #'peek))
+                               (lambda () (db-scan-parallel db #'peek))
+                               (lambda () (db-occupy db (lambda (&rest r)
+                                                          (declare (ignore r))
+                                                          (db-count db))))
+                               (lambda () (with-cursor (c db)
+                                            (cursor-jump c)
+                                            (cursor-accept c #'peek)))))
+            (is (eq :invalid-argument (outcome-within 10 visit)))))
+        (is-true (db-accept db "a" (lambda (k v)
+                                     (declare (ignore k))
+                                     (db-set other "copy" v)
+                                     (concatenate 'string v "!"))
+                            :as :string))
+        (is (equal "1!" (db-get db "a" :as :string)))
+        (is (equal "1" (db-get other "copy" :as :string)))
+        (is (= 1 (db-count db)))))))
+
+(test scan-parallel-caps-its-threads
+  "DB-SCAN-PARALLEL runs at most 127 threads, as Kyoto Cabinet does
+(#8).  Each worker's first visit waits for 128 workers to show up, or a
+second, before going on, so an uncapped scan of 200 shows over 127."
+  (with-temp-db (db)
+    (dotimes (i 5000)
+      (db-set db (keyed i) "v"))
+    (let ((seen (make-hash-table :test 'eq))
+          (lock (bt:make-lock))
+          (deadline (+ (get-internal-real-time)
+                       internal-time-units-per-second)))
+      (flet ((workers ()
+               (bt:with-lock-held (lock)
+                 (hash-table-count seen))))
+        (db-scan-parallel db (lambda (k v)
+                               (declare (ignore k v))
+                               (bt:with-lock-held (lock)
+                                 (setf (gethash (bt:current-thread) seen) t))
+                               (loop until (or (>= (workers) 128)
+                                               (> (get-internal-real-time)
+                                                  deadline))
+                                     do (sleep 0.01))
+                               :nop)
+                          :threads 200)
+        (is (<= (workers) 127) "~d workers" (workers))))))
+
+(defvar *scan-probe* :global)
+
+(test scan-parallel-workers-take-default-special-bindings
+  "A scan's workers see a special variable's global value, not the
+caller's binding, unless BORDEAUX-THREADS's *DEFAULT-SPECIAL-BINDINGS*
+carries it, as the README says."
+  (with-temp-db (db)
+    (dotimes (i 20)
+      (db-set db (keyed i) "v"))
+    (let ((seen '())
+          (lock (bt:make-lock)))
+      (flet ((note (k v)
+               (declare (ignore k v))
+               (bt:with-lock-held (lock)
+                 (pushnew *scan-probe* seen))
+               :nop))
+        (let ((*scan-probe* :bound))
+          (db-scan-parallel db #'note)
+          (is (equal '(:global) seen))
+          (setf seen '())
+          (let ((bt:*default-special-bindings*
+                  (acons '*scan-probe* :carried
+                         bt:*default-special-bindings*)))
+            (db-scan-parallel db #'note))
+          (is (equal '(:carried) seen)))))))

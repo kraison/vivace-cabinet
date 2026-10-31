@@ -39,6 +39,13 @@ With VALUE-P NIL (T by default), the key alone: the value is not read."))
 STRICT) as (values key value), or NIL; the last record when KEY is NIL.
 With VALUE-P NIL, the key alone."))
 
+(defgeneric engine-key-limit (engine)
+  (:documentation "The longest key ENGINE stores, in bytes, or NIL for
+no limit.")
+  (:method (engine)
+    (declare (ignore engine))
+    nil))
+
 (defgeneric engine-address (engine)
   (:documentation "Where the engine's header lies in the heap."))
 

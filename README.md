@@ -73,7 +73,8 @@ compare-and-swap that finds another value) returns NIL, and
 `(db-error db)` says why: `:duplicate-record`, `:no-record`,
 `:no-permission` or `:logic`. Real problems signal `vivace-cabinet-error`
 subclasses: `open-error`, `invalid-argument`, `key-too-long`,
-`reservation-exhausted`, `not-implemented` and its subclass
+`system-error` (a file the copy and snapshot calls cannot read, write
+or rename), `reservation-exhausted`, `not-implemented` and its subclass
 `transactions-not-implemented`. An `open-error` raised by a failure in
 the files keeps that condition under `open-error-cause`, so a caller
 can tell a permission problem from a damaged file.
@@ -104,9 +105,11 @@ returns NIL with `:no-record`. Cursors behave as Kyoto Cabinet's do. If
 another call removes a cursor's record, the cursor's next read, edit or
 step acts on the record after it, whichever way the cursor last moved, so
 a backward walk can read a record twice while other threads remove
-records, and a read followed by a separate `cursor-step` can skip a record
-removed in between. A walk that reads with `:step t` misses no record that
-other threads leave alone; the matches and `db-merge` walk that way.
+records, and on a TreeDB a read followed by a separate `cursor-step` can
+skip the record after one removed in between (a HashDB step from a
+removed record lands on the record after it, as Kyoto's does). A walk
+that reads with `:step t` misses no record that other threads leave
+alone; the matches and `db-merge` walk that way.
 `db-clear` leaves every cursor on no record until it jumps again. A TreeDB
 cursor holds its position as a key, so other threads' changes leave it
 valid. Give each thread its own cursor; `with-cursor` releases its cursor
@@ -116,7 +119,9 @@ A HashDB cursor moves forward only, in no useful order, as in Kyoto
 Cabinet: `cursor-jump-back` and `cursor-step-back` signal
 `not-implemented`, and `cursor-jump` with a key lands on that key's
 record. It reads the index a bucket at a time, so a record that a
-concurrent writer's bucket split moves can be seen twice or missed.
+concurrent writer's bucket split moves can be seen twice or missed, so
+a `db-merge` from a HashDB being written can store a record twice or
+miss it; under `:append`, a record stored twice is appended twice.
 
 ## Visitors and the rest of the API
 
@@ -131,9 +136,13 @@ A visitor is a function of a key and its value (NIL when the key is
 absent) whose answer says what becomes of the record: NIL or `:nop`
 keeps it, `:remove` removes it, and anything else is the new value.
 `db-accept` visits one key, and `db-accept-bulk` a list of keys in order,
-atomically for all of them. `:writable nil` visits without changing
+holding all of them for the whole call: other threads see none of the
+keys change until it ends, but a visitor's error leaves the keys before
+it changed, as in Kyoto Cabinet. `:writable nil` visits without changing
 anything, the only kind of visit a reader allows. A visitor runs while
-the database holds its key's lock, so it must not use the database.
+the database holds its key's lock, so it must not use the database: a
+call on it from the visitor's thread signals `invalid-argument` instead
+of waiting for itself. Another database is fine.
 
 `db-cas` stores a new value only when the old one is as given (NIL: the
 key must be absent; a new value of NIL removes the record).
@@ -142,17 +151,26 @@ key must be absent; a new value of NIL removes the record).
 (the integral part, then the fraction in units of 10^-15, 8 bytes each,
 with the fraction rounded as Kyoto's x87 long double arithmetic rounds
 it), so the bytes are those Kyoto writes on x86-64; `:orig` is an absent
-key's starting value.
+key's starting value. One difference: a `db-increment` whose result is
+exactly the most negative 64-bit integer returns it, where Kyoto stores
+it but reports failure with `:logic`, that being its failure value.
 
 `db-set-bulk` stores an alist of keys and values (a key given twice
 takes its last value) and returns how many it stored; `db-get-bulk`
 returns an alist of the keys it finds; `db-remove-bulk` returns how many
-it removed. Each is atomic unless given `:atomic nil`.
+it removed. Each holds its keys for the whole call unless given
+`:atomic nil`; neither way is all-or-nothing, so a key too long for a B+
+tree partway leaves the earlier keys stored. On a reader, both writes
+fail with `:no-permission`, even with no records.
 
 `db-iterate` visits every record while holding the whole database:
-other threads wait until it ends, as in Kyoto Cabinet.
-`db-scan-parallel` visits every record from `:threads` threads (4) at
-once, read-only, also holding the database. `cursor-accept` visits a
+other threads wait until it ends, as in Kyoto Cabinet, and get their
+turn before the next whole-database call.
+`db-scan-parallel` visits every record from `:threads` threads (4; at
+most 127, as in Kyoto Cabinet) at once, read-only, also holding the
+database. Its visitor runs on new threads, so it sees special variables'
+global values, not the caller's bindings;
+`bordeaux-threads:*default-special-bindings*` passes bindings to them. `cursor-accept` visits a
 cursor's record, and with `:step t` moves on.
 
 `db-match-prefix`, `db-match-regex` (CL-PPCRE syntax, matched against
@@ -165,13 +183,17 @@ them in order; every other match reads every key.
 `db-status` returns a plist describing the database. `db-occupy` calls a
 function with the database's path, record count and size while holding
 it. `db-copy` copies the database's files into a new directory outside
-it, which opens as a database of its own. `db-merge` stores other databases'
+it, which opens as a database of its own; each file keeps its mode,
+and the index's sparse files their holes, which the copy skips rather
+than reads. `db-merge` stores other databases'
 records by `:mode` (`:set`, `:add`, `:replace` or `:append`), one source
 after another, so under `:set` a key in several sources takes the last
 one's value.
 
 `db-dump-snapshot` writes every record to one file, and `db-load-snapshot`
-stores a snapshot's records into a database of either type. A dump goes
+stores a snapshot's records into a database of either type, reading the
+whole file first, so a snapshot cut short or holding a key too long for
+the database signals and stores nothing. A dump goes
 through `PATH.tmp`, so one that fails leaves the snapshot already at
 `PATH` as it was. The format is vivace-cabinet's own: 8 magic bytes, then
 each record's key length and value length (8 bytes each, little-endian),

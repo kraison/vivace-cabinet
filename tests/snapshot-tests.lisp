@@ -87,3 +87,56 @@ leaves it as it was, and no temporary file behind."
                             (mapcar #'file-namestring
                                     (uiop:directory-files dir)))))))
         (ignore-errors (close-db db))))))
+
+(def-db-test bad-snapshots-load-nothing
+  "A snapshot cut short, or holding a key too long for the database,
+signals before any record is stored (#8)."
+  (with-temp-directory (dir)
+    (let ((whole (merge-pathnames "whole.snap" dir))
+          (cut (merge-pathnames "cut.snap" dir))
+          (long (merge-pathnames "long.snap" dir)))
+      (with-test-db (db (merge-pathnames "s.vc/" dir))
+        (dotimes (i 3)
+          (db-set db (keyed i) "v"))
+        (db-dump-snapshot db whole))
+      (let ((all (file-octets whole)))
+        (with-open-file (out cut :direction :output
+                                 :element-type '(unsigned-byte 8))
+          (write-sequence all out :end (- (length all) 12))))
+      ;; In key order, so the long key comes last.
+      (with-db (src (merge-pathnames "o.vct/" dir) :type :tree
+                                                   :engine :skip-list)
+        (db-set src "a" "v")
+        (db-set src "b" "v")
+        (db-set src (make-string 2000 :initial-element #\z) "v")
+        (db-dump-snapshot src long))
+      (with-test-db (db (merge-pathnames "l.vc/" dir))
+        (signals invalid-argument (db-load-snapshot db cut))
+        (is (= 0 (db-count db)))
+        (cond ((eq :bplus-tree (getf *db-type-args* :engine))
+               (signals key-too-long (db-load-snapshot db long))
+               (is (= 0 (db-count db))))
+              (t
+               (is-true (db-load-snapshot db long))
+               (is (= 3 (db-count db)))))))))
+
+(def-db-test file-trouble-signals-system-error
+  "A missing snapshot, a dump into a missing directory and a copy under
+a file signal SYSTEM-ERROR, a VIVACE-CABINET-ERROR (#8), and change
+nothing."
+  (with-temp-directory (dir)
+    (with-test-db (db (merge-pathnames "s.vc/" dir))
+      (db-set db "k" "v")
+      (signals system-error
+        (db-load-snapshot db (merge-pathnames "none.snap" dir)))
+      (signals system-error
+        (db-dump-snapshot db (merge-pathnames "nodir/x.snap" dir)))
+      (with-open-file (out (merge-pathnames "afile" dir) :direction :output)
+        (write-line "x" out))
+      (signals system-error (db-copy db (merge-pathnames "afile/c.vc/" dir)))
+      (is (equal "v" (db-get db "k" :as :string)))
+      (is (equal '("afile")
+                 (mapcar #'file-namestring (uiop:directory-files dir))))
+      (is (equal '("s.vc")
+                 (mapcar (lambda (d) (car (last (pathname-directory d))))
+                         (uiop:subdirectories dir)))))))

@@ -17,11 +17,11 @@
    (autosync :initarg :autosync :reader %db-autosync-p)
    (tuning :initarg :tuning :reader %db-tuning)
    (heap :initform nil :accessor %db-heap)
-   (lock :initform (make-rw-lock) :reader %db-lock)
+   (lock :initform (make-fair-lock) :reader %db-lock)
    (stripes :reader %db-stripes
             :initform (let ((v (make-array +stripes+)))
                         (dotimes (i +stripes+ v)
-                          (setf (aref v i) (make-rw-lock)))))
+                          (setf (aref v i) (make-fair-lock)))))
    (errors :initform (make-hash-table :test 'eq
                                       #+sbcl :weakness #+sbcl :key)
            :reader %db-errors)
@@ -45,6 +45,10 @@
   (:method ((db database)) 0))
 
 (defgeneric %record-count (db))
+
+(defgeneric %key-limit (db)
+  (:documentation "The longest key DB stores, in bytes, or NIL.")
+  (:method ((db database)) nil))
 
 (defgeneric %create-storage (db)
   (:documentation "Create DB's storage in its existing directory."))
@@ -98,10 +102,9 @@ before the rename and the directory after it."
         (unwind-protect (%posix-fsync dir)
           (%posix-close dir))))))
 
-(defun %write-header (db &key open hard)
-  "Write DB's header: magic VCAB, format 1, type, OPEN (1 while a writer
-has the database open), engine, record count, structure address.  It
-replaces header.dat whole; HARD makes it durable."
+(defun %header-octets (db &key open)
+  "DB's header as it stands: magic VCAB, format 1, type, OPEN (1 while a
+writer has the database open), engine, record count, structure address."
   (let ((h (make-array +header-bytes+ :element-type '(unsigned-byte 8)
                                       :initial-element 0)))
     (replace h +header-magic+)
@@ -111,7 +114,13 @@ replaces header.dat whole; HARD makes it durable."
           (aref h 7) (%engine-code db))
     (%put-u64 h 8 (%record-count db))
     (%put-u64 h 16 (%header-address db))
-    (%replace-file (%header-file (%db-dir db)) h hard)))
+    h))
+
+(defun %write-header (db &key open hard)
+  "Write DB's header file (%HEADER-OCTETS), replacing header.dat whole;
+HARD makes it durable."
+  (%replace-file (%header-file (%db-dir db)) (%header-octets db :open open)
+                 hard))
 
 (defun %read-header (dir)
   "DIR's header as a plist: :TYPE (:HASH or :TREE), :OPEN, :ENGINE, :COUNT
@@ -235,7 +244,8 @@ says.  Returns DB."
     db))
 
 (defmethod close-db ((db database))
-  (with-write-lock ((%db-lock db))
+  (%check-free db)
+  (with-exclusive-lock ((%db-lock db))
     (prog1 (when (%db-open-p db)
              (when (%db-writable-p db)
                ;; Storage first, as DB-SYNCHRONIZE :HARD orders it: a
@@ -258,17 +268,51 @@ says.  Returns DB."
   (unless (%db-open-p db)
     (%signal 'invalid-argument "the database is closed")))
 
+(defvar *visiting* '()
+  "The databases whose visitor, or DB-OCCUPY's function, is running on
+this thread.  Their locks are held, so a call on one would wait for
+itself (#8).")
+
+(defun %check-free (db)
+  "Signal INVALID-ARGUMENT when a visitor on this thread holds DB."
+  (when (member db *visiting* :test #'eq)
+    (%signal 'invalid-argument
+             "the database is held by a visitor on this thread")))
+
+(defmacro %visiting ((db) &body body)
+  "Run BODY, a visit of DB, with DB registered as held by this thread."
+  `(let ((*visiting* (cons ,db *visiting*)))
+     ,@body))
+
+(defmacro %holding ((db mode) &body body)
+  "Run BODY holding DB's lock, :SHARED or :EXCLUSIVE, once no visitor
+on this thread holds DB and DB is open."
+  (let ((d (gensym "DB")))
+    `(let ((,d ,db))
+       (%check-free ,d)
+       (,(ecase mode
+           (:shared 'with-shared-lock)
+           (:exclusive 'with-exclusive-lock))
+        ((%db-lock ,d))
+        (%check-open ,d)
+        ,@body))))
+
 (defmacro with-key-locked ((db digest mode) &body body)
   "Run BODY holding DB's lock shared and DIGEST's stripe for MODE (:READ
 or :WRITE)."
   (let ((d (gensym "DB")) (s (gensym "STRIPE")))
     `(let ((,d ,db))
-       (with-read-lock ((%db-lock ,d))
-         (%check-open ,d)
+       (%holding (,d :shared)
          (let ((,s (%stripe ,d ,digest)))
            ,(ecase mode
-              (:read `(with-read-lock (,s) ,@body))
-              (:write `(with-write-lock (,s) ,@body))))))))
+              (:read `(with-shared-lock (,s) ,@body))
+              (:write `(with-exclusive-lock (,s) ,@body))))))))
+
+(defun %ensure-open (db)
+  "Signal INVALID-ARGUMENT unless DB is open: for a call that takes DB's
+lock only in its parts, and so would otherwise do nothing and return T
+on a closed database when it has no parts (#8)."
+  (%holding (db :shared) t))
 
 (defun %fail (db code)
   "Record CODE as the calling thread's last failure on DB; return NIL."
@@ -283,7 +327,7 @@ or :WRITE)."
 (defun %autosync (db)
   "Synchronize DB after a write under :AUTOSYNC, unless another thread
 has closed it meanwhile: CLOSE-DB synchronized it then (#6)."
-  (with-write-lock ((%db-lock db))
+  (with-exclusive-lock ((%db-lock db))
     (when (%db-open-p db)
       (%sync-storage db nil)
       (%write-header db :open t))))
@@ -306,15 +350,13 @@ fail with :NO-PERMISSION."
   (namestring (%db-dir db)))
 
 (defmethod db-count ((db database))
-  (with-read-lock ((%db-lock db))
-    (%check-open db)
+  (%holding (db :shared)
     (%record-count db)))
 
 (defmethod db-synchronize ((db database) &key hard)
   "Flush DB's files to the operating system and write its header; with
 HARD, force both to the device (#6).  T."
-  (with-write-lock ((%db-lock db))
-    (%check-open db)
+  (%holding (db :exclusive)
     (when (%db-writable-p db)
       (%sync-storage db hard)
       (%write-header db :open t :hard hard))
@@ -322,8 +364,7 @@ HARD, force both to the device (#6).  T."
 
 (defmethod db-clear ((db database))
   (if (%db-writable-p db)
-      (with-write-lock ((%db-lock db))
-        (%check-open db)
+      (%holding (db :exclusive)
         (%close-storage db)
         (%delete-storage (%db-dir db))
         (%create-storage db)
@@ -345,15 +386,14 @@ HARD, force both to the device (#6).  T."
 over overlapping keys cannot deadlock."
   (let ((indexes (sort (remove-duplicates (mapcar #'%stripe-index digests))
                        #'<)))
-    (with-read-lock ((%db-lock db))
-      (%check-open db)
+    (%holding (db :shared)
       (labels ((take (rest)
                  (if (null rest)
                      (funcall fn)
                      (let ((s (aref (%db-stripes db) (first rest))))
                        (ecase mode
-                         (:read (with-read-lock (s) (take (rest rest))))
-                         (:write (with-write-lock (s)
+                         (:read (with-shared-lock (s) (take (rest rest))))
+                         (:write (with-exclusive-lock (s)
                                    (take (rest rest)))))))))
         (take indexes)))))
 
@@ -383,6 +423,5 @@ record.  The caller holds DB exclusively."
   (:documentation "DB-SIZE without the lock."))
 
 (defmethod db-size ((db database))
-  (with-read-lock ((%db-lock db))
-    (%check-open db)
+  (%holding (db :shared)
     (%size db)))

@@ -34,6 +34,7 @@ from vivace-graph's on-disk structures."
                (:file "records")
                (:file "api")
                (:file "dir-lock")
+               (:file "fair-lock")
                (:file "database")
                (:file "hash-db")
                (:file "tree-engine")

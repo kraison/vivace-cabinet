@@ -11,8 +11,7 @@
     (list :engine (%engine-kind (%engine-code db)))))
 
 (defmethod db-status ((db database))
-  (with-read-lock ((%db-lock db))
-    (%check-open db)
+  (%holding (db :shared)
     (list* :type (if (typep db 'tree-db) :tree :hash)
            :path (db-path db)
            :count (%record-count db)
@@ -23,43 +22,104 @@
 
 (defmethod db-occupy ((db database) fn &key (writable t))
   (flet ((run ()
-           (%check-open db)
-           (if (funcall fn (db-path db) (%record-count db) (%size db))
+           (if (%visiting (db)
+                 (funcall fn (db-path db) (%record-count db) (%size db)))
                t
                (%fail db :logic))))
     (if writable
-        (with-write-lock ((%db-lock db)) (run))
-        (with-read-lock ((%db-lock db)) (run)))))
+        (%holding (db :exclusive) (run))
+        (%holding (db :shared) (run)))))
 
 ;;; Copying
 
-(defun %copy-sparse (from to)
-  "Copy file FROM to TO, leaving 64 KiB runs of zeros as holes: the
-linear hash's index files are mostly holes."
-  (let ((buf (make-array 65536 :element-type '(unsigned-byte 8))))
+(alexandria:define-constant +seek-data+ 3)
+(alexandria:define-constant +seek-hole+ 4)
+(alexandria:define-constant +enxio+ 6)
+
+(defun %lseek (fd offset whence)
+  "lseek(2): the new offset, or -1."
+  (cffi:foreign-funcall "lseek" :int fd :long offset :int whence :long))
+
+(defun %next-data (fd from size)
+  "The next run of data in FD at or after FROM as (values start end), or
+NIL when only holes remain (SEEK_DATA and SEEK_HOLE).  A file system
+without them reports the rest of the file as data."
+  (let ((start (%lseek fd from +seek-data+)))
+    (cond ((>= start 0)
+           (let ((end (%lseek fd start +seek-hole+)))
+             (values start (if (minusp end) size end))))
+          ((= (sb-alien:get-errno) +enxio+) nil)
+          (t (values from size)))))
+
+(defun %file-mode (path)
+  "PATH's permission bits."
+  (multiple-value-bind (ok dev ino mode)
+      (sb-unix:unix-stat (uiop:native-namestring path))
+    (declare (ignore dev ino))
+    (and ok (logand mode #o7777))))
+
+(defun %set-length (stream length)
+  "ftruncate(2) STREAM's file to LENGTH, once its output is written."
+  (finish-output stream)
+  (unless (zerop (cffi:foreign-funcall "ftruncate"
+                                       :int (sb-sys:fd-stream-fd stream)
+                                       :long length :int))
+    (%signal 'system-error "cannot set the length of ~a" (pathname stream))))
+
+(defun %copy-sparse (from to &key edit)
+  "Copy file FROM to TO with FROM's mode, reading only FROM's data (#8)
+and leaving 64 KiB runs of zeros as holes: the linear hash's index
+files are mostly holes.  EDIT, if given, is called with TO's stream
+once the copy is written, before TO takes FROM's mode, which may not
+allow writing.  Returns the number of bytes read."
+  (let ((buf (make-array 65536 :element-type '(unsigned-byte 8)))
+        (bytes 0))
     (declare (type (simple-array (unsigned-byte 8) (65536)) buf))
     (with-open-file (in from :element-type '(unsigned-byte 8))
       (with-open-file (out to :direction :output :if-exists :error
                               :element-type '(unsigned-byte 8))
-        (let ((pos 0)
-              (hole nil))
-          (loop for n = (read-sequence buf in)
-                until (zerop n)
-                do (setf hole (loop for i below n always (zerop (aref buf i))))
-                   (if hole
-                       (file-position out (+ pos n))
-                       (write-sequence buf out :end n))
-                   (incf pos n))
-          ;; A file ending in a hole needs its last byte written to keep
-          ;; its length.
-          (when hole
-            (file-position out (1- pos))
-            (write-byte 0 out)))))))
+        (let ((size (file-length in))
+              ;; Seeking for data must not move IN's own offset.
+              (fd (%posix-open from +o-rdonly+)))
+          (unwind-protect
+               (loop with pos = 0
+                     while (< pos size)
+                     do (multiple-value-bind (start end)
+                            (%next-data fd pos size)
+                          (unless start
+                            (return))
+                          (file-position in start)
+                          (file-position out start)
+                          (loop while (< start end)
+                                do (let ((n (read-sequence
+                                             buf in
+                                             :end (min 65536 (- end start)))))
+                                     (when (zerop n)
+                                       (return))
+                                     (incf bytes n)
+                                     (if (loop for i below n
+                                               always (zerop (aref buf i)))
+                                         (file-position out (+ start n))
+                                         (write-sequence buf out :end n))
+                                     (incf start n)))
+                          (setf pos end)))
+            (%posix-close fd))
+          (when edit
+            (funcall edit out))
+          ;; The copy's length, holes at the end included, and mode.
+          (%set-length out size)
+          (%posix-fchmod (sb-sys:fd-stream-fd out) (%file-mode from)))))
+    bytes))
 
-(defun %copy-tree (from to)
+(defun %copy-tree (from to &key edit-header)
+  "Copy the files under FROM into TO; EDIT-HEADER edits the copy of
+FROM's header.dat as %COPY-SPARSE's EDIT."
   (ensure-directories-exist to)
   (dolist (f (uiop:directory-files from))
-    (%copy-sparse f (merge-pathnames (file-namestring f) to)))
+    (%copy-sparse f (merge-pathnames (file-namestring f) to)
+                  :edit (and (equal (file-namestring f)
+                                    (file-namestring (%header-file from)))
+                             edit-header)))
   (dolist (d (uiop:subdirectories from))
     (%copy-tree d (merge-pathnames
                    (make-pathname :directory
@@ -67,12 +127,14 @@ linear hash's index files are mostly holes."
                                         (car (last (pathname-directory d)))))
                    to))))
 
-(defun %mark-closed (dir)
-  "Clear the open flag in DIR's header."
-  (with-open-file (s (%header-file dir) :direction :io :if-exists :overwrite
-                                        :element-type '(unsigned-byte 8))
-    (file-position s 6)
-    (write-byte 0 s)))
+(defun %closed-header-writer (db)
+  "A %COPY-SPARSE EDIT that writes DB's header as a closed database's
+over the copy: the count and address as they stand, so the copy opens
+without a recount, and nothing of DB's own files is rewritten or the
+copy's reopened, which files without owner write would refuse."
+  (lambda (out)
+    (file-position out 0)
+    (write-sequence (%header-octets db) out)))
 
 (defmethod db-copy ((db database) dest)
   (let ((to (uiop:ensure-directory-pathname (merge-pathnames dest)))
@@ -83,16 +145,14 @@ linear hash's index files are mostly holes."
     (when (or (uiop:subpathp to dir)
               (and (probe-file dir) (uiop:subpathp to (truename dir))))
       (%signal 'invalid-argument "~a is inside the database ~a" to dir))
-    (with-write-lock ((%db-lock db))
-      (%check-open db)
-      (when (%db-writable-p db)
-        (%sync-storage db nil)
-        (%write-header db :open t))
-      (%copy-tree (%db-dir db) to)
-      ;; Synchronized just now, so the copy needs no recount; a reader's
-      ;; header says what the last writer left.
-      (when (%db-writable-p db)
-        (%mark-closed to))
+    (%holding (db :exclusive)
+      (%with-system-errors
+        (when (%db-writable-p db)
+          (%sync-storage db nil))
+        ;; A reader's copy keeps the header the last writer left.
+        (%copy-tree (%db-dir db) to
+                    :edit-header (and (%db-writable-p db)
+                                      (%closed-header-writer db))))
       t)))
 
 ;;; Merging
@@ -103,6 +163,7 @@ linear hash's index files are mostly holes."
              "MODE must be :SET, :ADD, :REPLACE or :APPEND: ~s" mode))
   (when (member db sources)
     (%signal 'invalid-argument "a database cannot merge into itself"))
+  (%ensure-open db)
   (if (not (%db-writable-p db))
       (%fail db :no-permission)
       (dolist (src sources t)

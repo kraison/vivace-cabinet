@@ -16,6 +16,7 @@ table of each key's last value."
     (values (nreverse keys) table)))
 
 (defmethod db-set-bulk ((db database) records &key (atomic t))
+  (%ensure-open db)
   (multiple-value-bind (keys table) (%last-values records)
     (if atomic
         (and (db-accept-bulk db keys
@@ -23,10 +24,13 @@ table of each key's last value."
                                (declare (ignore v))
                                (gethash k table)))
              (length keys))
-        (loop for k in keys
-              unless (db-set db k (gethash k table))
-                return nil
-              count t))))
+        ;; A reader fails even with no records, as the atomic call does.
+        (if (%db-writable-p db)
+            (loop for k in keys
+                  unless (db-set db k (gethash k table))
+                    return nil
+                  count t)
+            (%fail db :no-permission)))))
 
 (defun %unique-octets (keys)
   "KEYS as octets, each once, in the order first given."
@@ -38,6 +42,7 @@ table of each key's last value."
 
 (defmethod db-get-bulk ((db database) keys &key (atomic t) (as :octets))
   (check-as as)
+  (%ensure-open db)
   (let ((found '()))
     (if atomic
         (db-accept-bulk db (%unique-octets keys)
@@ -54,6 +59,7 @@ table of each key's last value."
     (nreverse found)))
 
 (defmethod db-remove-bulk ((db database) keys &key (atomic t))
+  (%ensure-open db)
   (if atomic
       (let ((n 0))
         (and (db-accept-bulk db (%unique-octets keys)
