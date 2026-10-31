@@ -135,10 +135,10 @@ files are mostly holes.  Returns the number of bytes read."
               (and (probe-file dir) (uiop:subpathp to (truename dir))))
       (%signal 'invalid-argument "~a is inside the database ~a" to dir))
     (%holding (db :exclusive)
-      (when (%db-writable-p db)
-        (%sync-storage db nil)
-        (%write-header db :open t))
       (%with-system-errors
+        (when (%db-writable-p db)
+          (%sync-storage db nil)
+          (%write-header db :open t))
         (%copy-tree (%db-dir db) to)
         ;; Synchronized just now, so the copy needs no recount; a
         ;; reader's header says what the last writer left.

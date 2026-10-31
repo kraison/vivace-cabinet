@@ -137,6 +137,23 @@ of holes around two 4 KiB blocks cost about the blocks."
           (read-sequence got in)
           (is (equalp block got)))))))
 
+(def-db-test copy-turns-a-sync-failure-into-system-error
+  "A FILE-ERROR from synchronizing the database before the copy signals
+SYSTEM-ERROR, like one from the copy itself (#8)."
+  (with-temp-directory (dir)
+    (with-test-db (db (merge-pathnames "o.vc/" dir))
+      (db-set db "k" "v")
+      (let ((method (defmethod %sync-storage :around ((d database) hard)
+                      (declare (ignore hard))
+                      (if (eq d db)
+                          (error 'file-error :pathname (db-path d))
+                          (call-next-method)))))
+        (unwind-protect
+             (signals system-error
+               (db-copy db (merge-pathnames "c.vc/" dir)))
+          (remove-method #'%sync-storage method)))
+      (is-true (db-copy db (merge-pathnames "c.vc/" dir))))))
+
 (def-db-test merge-modes
   "Each mode stores a source's records as its operation would."
   (with-temp-directory (dir)
