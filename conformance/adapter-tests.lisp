@@ -51,3 +51,53 @@ signals INVALID-ARGUMENT rather than matching on the part before it."
       (fiveam:signals invalid-argument (db-match-prefix db p))
       (fiveam:signals invalid-argument (db-match-regex db p))
       (fiveam:signals invalid-argument (db-match-similar db p 1)))))
+
+(fiveam:test adapter-frees-buffers-when-filling-signals
+  "A bulk call frees the foreign copies it made when making a later one
+signals (#9): here the third fails.  A bad record signals before any is
+made."
+  (with-kyoto (db "f.kch")
+    (let ((fills 0)
+          (frees 0))
+      (with-encapsulated ((vivace-cabinet-kyoto::%fill-kcstr (f &rest args)
+                            (when (= (incf fills) 3)
+                              (error "no memory"))
+                            (apply f args))
+                          (vivace-cabinet-kyoto::%free-kcstr (f &rest args)
+                            (incf frees)
+                            (apply f args)))
+        (fiveam:signals error (db-remove-bulk db '("a" "b" "c" "d")))
+        (fiveam:is (= 3 fills))
+        (fiveam:is (= 2 frees))
+        (setf fills 0 frees 0)
+        (fiveam:signals error (db-set-bulk db '(("a" . "1") ("b" . "2")
+                                                ("c" . "3"))))
+        (fiveam:is (= 3 fills))
+        (fiveam:is (= 2 frees))
+        (setf fills 0 frees 0)
+        (fiveam:signals invalid-argument
+          (db-set-bulk db '(("a" . "1") (42 . "2"))))
+        (fiveam:is (= 0 fills frees))))))
+
+
+(fiveam:test adapter-frees-kyotos-buffers-when-reading-signals
+  "What Kyoto returns is freed even when reading it :AS :STRING signals
+on bytes that are not UTF-8 (#9): every key and value of a bulk get,
+every key of a match."
+  (with-kyoto (db "u.kct")
+    (let ((bad (coerce #(255 254) '(simple-array (unsigned-byte 8) (*))))
+          (frees 0))
+      ;; Both values are bad: whichever record is read first signals.
+      (db-set db "a" bad)
+      (db-set db "b" bad)
+      (db-set db bad "v")
+      (with-encapsulated ((kyoto-cabinet-ffi:kcfree (f p)
+                            (incf frees)
+                            (funcall f p)))
+        (fiveam:signals invalid-argument
+          (db-get-bulk db (list "a" "b" bad) :as :string))
+        (fiveam:is (= 6 frees))
+        (setf frees 0)
+        (fiveam:signals invalid-argument (db-match-prefix db "" :as :string))
+        (fiveam:is (= 3 frees))))))
+
