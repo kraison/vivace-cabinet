@@ -49,10 +49,15 @@ tuning parameters, e.g. (:bnum 2000000).  Returns a KYOTO-DB."
   (kyoto-error-code (kyoto-cabinet-ffi:kcdbecode (%ptr db))))
 
 (defmethod close-db ((db kyoto-db))
-  (let ((ptr (%kdb-ptr db)))
+  ;; Kyoto frees the database here: other threads must be done with it,
+  ;; as with Kyoto's own kcdbdel.  Its cursors go under the lock, which
+  ;; DB-CURSOR holds while it makes one (#9).
+  (let ((ptr (bt:with-lock-held ((%kdb-lock db))
+               (prog1 (%kdb-ptr db)
+                 (mapc #'%delete-cursor (%kdb-cursors db))
+                 (setf (%kdb-cursors db) '()
+                       (%kdb-ptr db) nil)))))
     (when ptr
-      (mapc #'%release-cursor (copy-list (%kdb-cursors db)))
-      (setf (%kdb-ptr db) nil)
       (prog1 (kyoto-cabinet-ffi:kcdbclose ptr)
         (kyoto-cabinet-ffi:kcdbdel ptr)))))
 

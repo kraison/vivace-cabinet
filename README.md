@@ -173,7 +173,10 @@ increments, compare-and-swap, bulk operations, matching, `db-count`,
 `db-size`, `db-clear` and cursors, with Kyoto's reasons from `db-error`.
 Kyoto's match calls take and return C strings: a pattern holding a zero
 byte signals `invalid-argument`, and a stored key holding one comes back
-cut off at it. The conformance check and the benchmark use it.
+cut off at it. `close-db` frees Kyoto's database, as `kcdbdel` does:
+call it only when no other thread is using the database, as the
+benchmark does by joining its threads first. The conformance check and
+the benchmark use it.
 
 ## Benchmark
 

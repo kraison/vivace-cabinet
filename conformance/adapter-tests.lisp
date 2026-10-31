@@ -52,6 +52,22 @@ signals INVALID-ARGUMENT rather than matching on the part before it."
       (fiveam:signals invalid-argument (db-match-regex db p))
       (fiveam:signals invalid-argument (db-match-similar db p 1)))))
 
+(fiveam:test adapter-makes-cursors-under-the-lock
+  "DB-CURSOR asks Kyoto for its cursor holding the database's cursor
+lock, under which CLOSE-DB deletes the cursors, so a close cannot miss
+one (#9)."
+  (with-kyoto (db "l.kch")
+    (let ((lock (vivace-cabinet-kyoto::%kdb-lock db))
+          (held :not-asked))
+      (with-encapsulated ((kyoto-cabinet-ffi:kcdbcursor (f ptr)
+                            (setf held (eq (sb-thread:mutex-owner lock)
+                                           sb-thread:*current-thread*))
+                            (funcall f ptr)))
+        (with-cursor (c db)
+          (fiveam:is (eq t held))
+          (fiveam:is (equal (list c)
+                            (vivace-cabinet-kyoto::%kdb-cursors db))))))))
+
 (fiveam:test adapter-frees-buffers-when-filling-signals
   "A bulk call frees the foreign copies it made when making a later one
 signals (#9): here the third fails.  A bad record signals before any is
@@ -79,7 +95,6 @@ made."
           (db-set-bulk db '(("a" . "1") (42 . "2"))))
         (fiveam:is (= 0 fills frees))))))
 
-
 (fiveam:test adapter-frees-kyotos-buffers-when-reading-signals
   "What Kyoto returns is freed even when reading it :AS :STRING signals
 on bytes that are not UTF-8 (#9): every key and value of a bulk get,
@@ -100,7 +115,6 @@ every key of a match."
         (setf frees 0)
         (fiveam:signals invalid-argument (db-match-prefix db "" :as :string))
         (fiveam:is (= 3 frees))))))
-
 
 (fiveam:test adapter-matches-check-their-arguments
   "A RANGE or :MAX that is not a natural number signals INVALID-ARGUMENT,
