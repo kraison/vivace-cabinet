@@ -32,28 +32,80 @@
 
 ;;; Copying
 
+(alexandria:define-constant +seek-data+ 3)
+(alexandria:define-constant +seek-hole+ 4)
+(alexandria:define-constant +enxio+ 6)
+
+(defun %lseek (fd offset whence)
+  "lseek(2): the new offset, or -1."
+  (cffi:foreign-funcall "lseek" :int fd :long offset :int whence :long))
+
+(defun %next-data (fd from size)
+  "The next run of data in FD at or after FROM as (values start end), or
+NIL when only holes remain (SEEK_DATA and SEEK_HOLE).  A file system
+without them reports the rest of the file as data."
+  (let ((start (%lseek fd from +seek-data+)))
+    (cond ((>= start 0)
+           (let ((end (%lseek fd start +seek-hole+)))
+             (values start (if (minusp end) size end))))
+          ((= (sb-alien:get-errno) +enxio+) nil)
+          (t (values from size)))))
+
+(defun %file-mode (path)
+  "PATH's permission bits."
+  (multiple-value-bind (ok dev ino mode)
+      (sb-unix:unix-stat (uiop:native-namestring path))
+    (declare (ignore dev ino))
+    (and ok (logand mode #o7777))))
+
+(defun %set-length (stream length)
+  "ftruncate(2) STREAM's file to LENGTH, once its output is written."
+  (finish-output stream)
+  (unless (zerop (cffi:foreign-funcall "ftruncate"
+                                       :int (sb-sys:fd-stream-fd stream)
+                                       :long length :int))
+    (%signal 'system-error "cannot set the length of ~a" (pathname stream))))
+
 (defun %copy-sparse (from to)
-  "Copy file FROM to TO, leaving 64 KiB runs of zeros as holes: the
-linear hash's index files are mostly holes."
-  (let ((buf (make-array 65536 :element-type '(unsigned-byte 8))))
+  "Copy file FROM to TO with FROM's mode, reading only FROM's data (#8)
+and leaving 64 KiB runs of zeros as holes: the linear hash's index
+files are mostly holes.  Returns the number of bytes read."
+  (let ((buf (make-array 65536 :element-type '(unsigned-byte 8)))
+        (bytes 0))
     (declare (type (simple-array (unsigned-byte 8) (65536)) buf))
     (with-open-file (in from :element-type '(unsigned-byte 8))
       (with-open-file (out to :direction :output :if-exists :error
                               :element-type '(unsigned-byte 8))
-        (let ((pos 0)
-              (hole nil))
-          (loop for n = (read-sequence buf in)
-                until (zerop n)
-                do (setf hole (loop for i below n always (zerop (aref buf i))))
-                   (if hole
-                       (file-position out (+ pos n))
-                       (write-sequence buf out :end n))
-                   (incf pos n))
-          ;; A file ending in a hole needs its last byte written to keep
-          ;; its length.
-          (when hole
-            (file-position out (1- pos))
-            (write-byte 0 out)))))))
+        (let ((size (file-length in))
+              ;; Seeking for data must not move IN's own offset.
+              (fd (%posix-open from +o-rdonly+)))
+          (unwind-protect
+               (loop with pos = 0
+                     while (< pos size)
+                     do (multiple-value-bind (start end)
+                            (%next-data fd pos size)
+                          (unless start
+                            (return))
+                          (file-position in start)
+                          (file-position out start)
+                          (loop while (< start end)
+                                do (let ((n (read-sequence
+                                             buf in
+                                             :end (min 65536 (- end start)))))
+                                     (when (zerop n)
+                                       (return))
+                                     (incf bytes n)
+                                     (if (loop for i below n
+                                               always (zerop (aref buf i)))
+                                         (file-position out (+ start n))
+                                         (write-sequence buf out :end n))
+                                     (incf start n)))
+                          (setf pos end)))
+            (%posix-close fd))
+          ;; The copy's length, holes at the end included, and mode.
+          (%set-length out size)
+          (%posix-fchmod (sb-sys:fd-stream-fd out) (%file-mode from)))))
+    bytes))
 
 (defun %copy-tree (from to)
   (ensure-directories-exist to)

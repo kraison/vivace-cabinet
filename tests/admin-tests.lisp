@@ -84,6 +84,59 @@ file keeps its length, those that end in a hole too."
                  :junk-allowed t)))
         (is (< kb 10240) "~a KiB on disk" kb)))))
 
+(defun file-modes (dir)
+  "Each file's mode in DIR and DIR's index/, by name."
+  (sort (loop for f in (append (uiop:directory-files dir)
+                               (uiop:directory-files
+                                (merge-pathnames "index/" dir)))
+              collect (cons (enough-namestring f dir) (%file-mode f)))
+        #'string< :key #'car))
+
+(test copy-keeps-file-modes
+  "The copy's files have the source's modes (#8): the mapped files'
+0640, and whatever a file was given since."
+  (with-temp-directory (dir)
+    (let ((orig (merge-pathnames "o.vch/" dir))
+          (copy (merge-pathnames "c.vch/" dir)))
+      (with-db (db orig)
+        (db-set db "k" "v")
+        (uiop:run-program
+         (list "chmod" "600" (uiop:native-namestring
+                              (merge-pathnames "heap.dat" orig))))
+        (db-copy db copy)
+        (is (equal (file-modes orig) (file-modes copy)))
+        (is (= #o600 (cdr (assoc "heap.dat" (file-modes copy)
+                                 :test #'equal))))
+        (is (= #o640 (cdr (assoc "index/table.dat" (file-modes copy)
+                                 :test #'equal))))))))
+
+(test copy-reads-only-the-data
+  "Copying a sparse file reads its data, not its holes (#8): 1000 MiB
+of holes around two 4 KiB blocks cost about the blocks."
+  (with-temp-directory (dir)
+    (let ((from (merge-pathnames "sparse" dir))
+          (to (merge-pathnames "copy" dir))
+          (size (* 1000 1024 1024))
+          (block (make-array 4096 :element-type '(unsigned-byte 8)
+                                  :initial-element 7)))
+      (with-open-file (out from :direction :output
+                                :element-type '(unsigned-byte 8))
+        (write-sequence block out)
+        (file-position out (- size 4096))
+        (write-sequence block out))
+      (let ((bytes (%copy-sparse from to)))
+        (is (< bytes (* 1024 1024)) "~d bytes read" bytes))
+      (with-open-file (in to :element-type '(unsigned-byte 8))
+        (is (= size (file-length in)))
+        (let ((got (make-array 4096 :element-type '(unsigned-byte 8))))
+          (read-sequence got in)
+          (is (equalp block got))
+          (file-position in (floor size 2))
+          (is (zerop (read-byte in)))
+          (file-position in (- size 4096))
+          (read-sequence got in)
+          (is (equalp block got)))))))
+
 (def-db-test merge-modes
   "Each mode stores a source's records as its operation would."
   (with-temp-directory (dir)

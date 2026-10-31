@@ -263,8 +263,8 @@ not use DB; a call on it signals INVALID-ARGUMENT."))
 
 (defgeneric db-copy (db dest)
   (:documentation "Copy DB's files to DEST, a directory that must not
-exist, as a database that opens on its own.  Holes in the index's sparse
-files stay holes."))
+exist, as a database that opens on its own.  Each file keeps its mode,
+and holes in the index's sparse files stay holes, unread."))
 
 (defgeneric db-merge (db sources &key mode)
   (:documentation "Store the records of the databases SOURCES into DB,
