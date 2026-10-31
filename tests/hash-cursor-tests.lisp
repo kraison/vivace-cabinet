@@ -71,6 +71,33 @@ move on, until the database is empty."
         (is (not (equal first (cursor-get-key cur :as :string))))
         (is (= 4 (length (cursor-walk cur #'cursor-step))))))))
 
+(test hash-cursor-steps-from-a-removed-record-to-the-next
+  "A step from a record another call removed lands on the record after
+it, as Kyoto's hash cursor steps from a freed record; it does not move
+past that one too (#8's lock change made the old skip show up).  Each
+case walks afresh: a removal reorders the rest of its bucket."
+  (with-temp-db (db)
+    (dotimes (i 40)
+      (db-set db (keyed i) "v"))
+    (with-cursor (cur db)
+      (flet ((order ()
+               (cursor-jump cur)
+               (cursor-walk cur #'cursor-step)))
+        (dolist (i '(0 5 17 30))
+          (let* ((order (order))
+                 (k (nth i order))
+                 (next (nth (1+ i) order)))
+            (cursor-jump cur k)
+            (db-remove db k)
+            (is-true (cursor-step cur))
+            (is (equal next (cursor-get-key cur :as :string))
+                "after removing ~a" k)))
+        (let ((last (car (last (order)))))
+          (cursor-jump cur last)
+          (db-remove db last)
+          (is (null (cursor-step cur)))
+          (is (eq :no-record (db-error db))))))))
+
 (test hash-cursor-moves-forward-only
   (with-temp-db (db)
     (db-set db "k" "v")

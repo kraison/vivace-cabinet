@@ -105,9 +105,11 @@ returns NIL with `:no-record`. Cursors behave as Kyoto Cabinet's do. If
 another call removes a cursor's record, the cursor's next read, edit or
 step acts on the record after it, whichever way the cursor last moved, so
 a backward walk can read a record twice while other threads remove
-records, and a read followed by a separate `cursor-step` can skip a record
-removed in between. A walk that reads with `:step t` misses no record that
-other threads leave alone; the matches and `db-merge` walk that way.
+records, and on a TreeDB a read followed by a separate `cursor-step` can
+skip the record after one removed in between (a HashDB step from a
+removed record lands on the record after it, as Kyoto's does). A walk
+that reads with `:step t` misses no record that other threads leave
+alone; the matches and `db-merge` walk that way.
 `db-clear` leaves every cursor on no record until it jumps again. A TreeDB
 cursor holds its position as a key, so other threads' changes leave it
 valid. Give each thread its own cursor; `with-cursor` releases its cursor

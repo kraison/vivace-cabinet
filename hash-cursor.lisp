@@ -117,8 +117,13 @@ lock."
 
 (defmethod cursor-step ((c hash-cursor))
   (if (%with-hash-cursor (db c)
-        (and (%hc-current c db)
-             (%hc-advance c)))
+        (let ((was (%hc-key c)))
+          (and (%hc-current c db)
+               ;; The record was removed: %HC-CURRENT moved past it to
+               ;; the next, and that is the step, as Kyoto's hash cursor
+               ;; steps from a freed record (kchashdb.h: step_impl).
+               (or (not (eq was (%hc-key c)))
+                   (%hc-advance c)))))
       t
       (%fail (%hc-db c) :no-record)))
 
