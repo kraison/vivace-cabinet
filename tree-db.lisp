@@ -92,6 +92,8 @@ OPEN-HASH-DB."
   (unless (and (integerp page-size) (<= 1024 page-size 32768))
     (%signal 'invalid-argument "PAGE-SIZE must be 1024 to 32768: ~s"
              page-size))
+  (%check-count :heap-size heap-size 0)
+  (%check-count :heap-reservation heap-reservation 0)
   (%open-database
    (make-instance 'tree-db :dir dir
                            :writable (and (member :writer mode) t)

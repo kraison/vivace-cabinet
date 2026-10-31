@@ -64,7 +64,8 @@ compare-and-swap that finds another value) returns NIL, and
 `(db-error db)` says why: `:duplicate-record`, `:no-record`,
 `:no-permission` or `:logic`. Real problems signal `vivace-cabinet-error`
 subclasses: `open-error`, `invalid-argument`, `key-too-long`,
-`not-implemented` and its subclass `transactions-not-implemented`.
+`reservation-exhausted`, `not-implemented` and its subclass
+`transactions-not-implemented`.
 `db-check` returns the value's size; `db-size` returns the bytes in use,
 not file sizes (the index files are sparse).
 
@@ -219,8 +220,8 @@ tracing on.
   count these.
 - **Growth stops at the reservation.** A HashDB's heap cannot grow past
   `:heap-reservation` until it is reopened, and each linear-hash file
-  stops at 8000 MiB; the error names vivace-graph's `GRAPH-DB` package.
-  Using the structures directly, bind
+  stops at 8000 MiB; the write signals `reservation-exhausted` and the
+  database stays usable. Using the structures directly, bind
   `vivace-cabinet::*mmap-reservation-multiplier*` or
   `vivace-cabinet::*mmap-min-reservation*` before creating or opening to
   reserve more.

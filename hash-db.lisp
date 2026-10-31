@@ -90,6 +90,10 @@ records if a writer left them open."
 hash; HEAP-SIZE is the heap's first size; HEAP-RESERVATION is the address
 space the heap may grow into before it must be reopened."
   (%check-mode mode)
+  (%check-count :buckets buckets 1)
+  (%check-count :max-locks max-locks 1)
+  (%check-count :heap-size heap-size 0)
+  (%check-count :heap-reservation heap-reservation 0)
   (%open-database
    (make-instance 'hash-db :dir dir
                            :writable (and (member :writer mode) t)

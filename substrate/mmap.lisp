@@ -274,19 +274,12 @@ and POINTER is stable for the life of the mapping."
   (%check-mapping-writable mapped-file)
   (let* ((old-len (mapped-file-length mapped-file))
          (new-len (+ old-len length)))
+    ;; The reservation is fixed at open from the file's size then (#6).
     (when (> new-len (m-reserved-size mapped-file))
-      (error "mmap reservation exhausted for ~A: need ~D bytes, reserved ~D.~%~
-The reservation is computed at open from the file's size then, so reopening the ~
-graph recomputes it against the now-larger file and grants fresh headroom.  To ~
-raise it up front, bind GRAPH-DB::*MMAP-RESERVATION-MULTIPLIER* or ~
-GRAPH-DB::*MMAP-MIN-RESERVATION* (or MAKE-GRAPH's heap/index size) before ~
-opening the graph.  Exception: a VECTOR SEGMENT never reaches this error at ~
-all -- its floor is GRAPH-DB:*SEGMENT-MIN-RESERVATION*, and %SEG-GROW ~
-re-reserves and relocates its mapping (under the segment's write lock) before ~
-calling this, so for segments the reservation is not a ceiling.  Only if that ~
-relocation is disabled or fails does a segment signal, and it signals ~
-VECTOR-SEGMENT-CAPACITY-EXHAUSTED, not this."
-             (m-path mapped-file) new-len (m-reserved-size mapped-file)))
+      (%signal 'reservation-exhausted
+               "~A cannot grow to ~D bytes: ~D were reserved at open. ~
+Reopening the database reserves more; see the README's Limits."
+               (m-path mapped-file) new-len (m-reserved-size mapped-file)))
     ;; Extend the backing file first so the newly mapped pages have storage.
     (%posix-extend-file-backing (m-fd mapped-file) new-len)
     ;; Re-map [0, new-len) over the reserved window at the same base.

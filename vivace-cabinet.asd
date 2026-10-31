@@ -8,6 +8,7 @@ from vivace-graph's on-disk structures."
                "cl-store" "log4cl" "uiop" #+(or ccl lispworks) "closer-mop")
   :serial t
   :components ((:file "package")
+               (:file "errors")
                (:module "substrate"
                 :serial t
                 :components ((:file "globals")

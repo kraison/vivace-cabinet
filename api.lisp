@@ -1,20 +1,8 @@
-;;;; The Kyoto Cabinet-style API: conditions, generic functions, key
-;;;; coercion and OPEN-DB (spec: API).  Engines implement the generics.
+;;;; The Kyoto Cabinet-style API: generic functions, key coercion and
+;;;; OPEN-DB (spec: API; the conditions are in errors.lisp).  Engines
+;;;; implement the generics.
 
 (in-package #:vivace-cabinet)
-
-(define-condition vivace-cabinet-error (error)
-  ((message :initarg :message :reader vivace-cabinet-error-message))
-  (:report (lambda (c s)
-             (write-string (vivace-cabinet-error-message c) s))))
-
-(define-condition not-implemented (vivace-cabinet-error) ())
-(define-condition invalid-argument (vivace-cabinet-error) ())
-(define-condition open-error (vivace-cabinet-error) ())
-(define-condition key-too-long (vivace-cabinet-error) ())
-
-(defun %signal (class control &rest args)
-  (error class :message (apply #'format nil control args)))
 
 (defgeneric close-db (db))
 (defgeneric db-set (db key value))

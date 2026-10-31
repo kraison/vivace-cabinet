@@ -279,3 +279,35 @@ makes the replacement durable."
             (is (= +header-bytes+ (read-sequence h old)))
             (is (= 1 (%get-u64 h 8)))))
         (is (= 2 (header-count path)))))))
+
+(test bad-tuning-signals
+  "Tuning keywords that are not integers in range signal
+INVALID-ARGUMENT at open, not DIVISION-BY-ZERO at the first use (#6)."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "bt.vch/" dir)))
+      (signals invalid-argument (open-db path :buckets 0))
+      (signals invalid-argument (open-db path :max-locks 0))
+      (signals invalid-argument (open-db path :buckets "x"))
+      (signals invalid-argument (open-db path :heap-size -1))
+      (signals invalid-argument (open-db path :heap-reservation nil))
+      (signals invalid-argument (open-db path :type :tree :heap-size 1.5))
+      (is (null (probe-file path))))))
+
+(test a-file-is-not-a-database
+  "A path naming a file signals OPEN-ERROR (#6)."
+  (with-temp-directory (dir)
+    (let ((file (merge-pathnames "plain" dir)))
+      (with-open-file (s file :direction :output)
+        (write-line "x" s))
+      (signals open-error (open-db file))
+      (signals open-error (open-db file :mode '(:reader))))))
+
+(def-db-test reservation-exhaustion-signals
+  "Growing the heap past its reservation signals RESERVATION-EXHAUSTED
+(#6), and the records already stored stay readable."
+  (with-temp-db (db :heap-size (* 1024 1024) :heap-reservation 1)
+    (db-set db "first" "v")
+    (signals reservation-exhausted
+      (dotimes (i 20)
+        (db-set db (keyed i) (make-string 100000 :initial-element #\x))))
+    (is (equal "v" (db-get db "first" :as :string)))))

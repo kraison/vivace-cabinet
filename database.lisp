@@ -153,6 +153,13 @@ of :READER and :WRITER."
     (%signal 'invalid-argument
              "MODE needs exactly one of :READER and :WRITER: ~s" mode)))
 
+(defun %check-count (name value least)
+  "Signal INVALID-ARGUMENT unless VALUE, the tuning keyword NAME's, is an
+integer of at least LEAST."
+  (unless (and (integerp value) (>= value least))
+    (%signal 'invalid-argument "~s must be an integer of at least ~d: ~s"
+             name least value)))
+
 (defun %guard-storage (db thunk)
   "Call THUNK, which creates or opens DB's storage; if it fails, close
 what it opened and signal OPEN-ERROR."
@@ -180,13 +187,17 @@ what it opened and signal OPEN-ERROR."
 says.  Returns DB."
   (let ((dir (%db-dir db))
         (writer (%db-writable-p db)))
-    (unless (probe-file dir)
-      (unless (and writer (member :create mode))
-        (%signal 'open-error
-                 "~a: no database here (open with :CREATE)" dir))
-      (ensure-directories-exist dir))
+    (cond ((uiop:directory-exists-p dir))
+          ((probe-file dir)
+           (%signal 'open-error "~a: not a directory" dir))
+          ((and writer (member :create mode))
+           (ensure-directories-exist dir))
+          (t (%signal 'open-error
+                      "~a: no database here (open with :CREATE)" dir)))
     (setf (%db-lock-fd db)
-          (or (lock-directory dir writer)
+          (or (handler-case (lock-directory dir writer)
+                (error (c)
+                  (%signal 'open-error "~a: ~a" dir c)))
               (%signal 'open-error "~a: open in another handle" dir)))
     (let ((ok nil))
       (unwind-protect
