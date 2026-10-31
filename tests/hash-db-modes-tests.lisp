@@ -311,3 +311,23 @@ INVALID-ARGUMENT at open, not DIVISION-BY-ZERO at the first use (#6)."
       (dotimes (i 20)
         (db-set db (keyed i) (make-string 100000 :initial-element #\x))))
     (is (equal "v" (db-get db "first" :as :string)))))
+
+(def-db-test autosync-skips-failures-and-closed-databases
+  "Under :AUTOSYNC a write that fails logically does not synchronize,
+and a write whose database another thread closed before its
+synchronize does not signal (#6)."
+  (with-temp-directory (dir)
+    (let* ((path (merge-pathnames "as.vch/" dir))
+           (header (merge-pathnames "header.dat" path))
+           (db (open-test-db path :mode '(:writer :create :autosync))))
+      (db-set db "k" "v")
+      (delete-file header)
+      (is (null (db-add db "k" "w")))
+      (is (null (probe-file header)))
+      (is (null (db-replace db "absent" "w")))
+      (is (null (probe-file header)))
+      (is-true (db-set db "k" "w"))
+      (is-true (probe-file header))
+      (close-db db)
+      (finishes (%autosync db))
+      (is (null (getf (%read-header path) :open))))))

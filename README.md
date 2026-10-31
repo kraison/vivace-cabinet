@@ -44,8 +44,9 @@ contents say.
 `db-synchronize` flushes the files to the operating system and writes
 the header, which holds the record count; with `:hard t` it forces both
 to the device (`msync`, `fsync`), as `close-db` does. `:autosync`
-synchronizes after each write. The header is replaced by a rename, so a
-crash leaves the old header or the new one, never a torn one.
+synchronizes after each write that succeeds. The header is replaced by
+a rename, so a crash leaves the old header or the new one, never a torn
+one.
 
 A TreeDB keeps its records in key order:
 

@@ -267,14 +267,25 @@ or :WRITE)."
   (with-lock-held ((%db-errors-lock db))
     (values (gethash (current-thread) (%db-errors db) :success))))
 
+(defun %autosync (db)
+  "Synchronize DB after a write under :AUTOSYNC, unless another thread
+has closed it meanwhile: CLOSE-DB synchronized it then (#6)."
+  (with-write-lock ((%db-lock db))
+    (when (%db-open-p db)
+      (%sync-storage db nil)
+      (%write-header db :open t))))
+
 (defmacro %writing ((db) &body body)
-  "Run BODY if DB is writable, then synchronize under :AUTOSYNC;
-otherwise fail with :NO-PERMISSION."
-  `(if (%db-writable-p ,db)
-       (multiple-value-prog1 (progn ,@body)
-         (when (%db-autosync-p ,db)
-           (db-synchronize ,db)))
-       (%fail ,db :no-permission)))
+  "Run BODY if DB is writable and, when its first value is not NIL (a
+logical failure returns NIL), synchronize under :AUTOSYNC; otherwise
+fail with :NO-PERMISSION."
+  (let ((values (gensym "VALUES")))
+    `(if (%db-writable-p ,db)
+         (let ((,values (multiple-value-list (progn ,@body))))
+           (when (and (first ,values) (%db-autosync-p ,db))
+             (%autosync ,db))
+           (values-list ,values))
+         (%fail ,db :no-permission))))
 
 ;;; Whole-database operations
 
