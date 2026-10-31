@@ -21,10 +21,10 @@ whose forms are those copied.
 | substrate/rw-lock.lisp | rw-lock.lisp | whole file but a block-commented test function; comments restored (#5) |
 | substrate/mmap.lisp | mmap.lisp | mapped files, byte access, uint64 and pointer codecs; not the segment machinery |
 | substrate/buffers.lisp | (new) | stand-ins for buffer-pool.lisp's `get-buffer` and `get-skip-node-buffer` |
-| substrate/allocator.lisp | allocator.lisp | all but `test-allocator` |
+| substrate/allocator.lisp | allocator.lisp | all but `test-allocator`; heap growth is logged at debug level, and an error the heap signals is not logged as well (#5) |
 | substrate/heap-bytes.lisp | transactions.lisp | `set-bytes` on `memory` |
 | structures/hash-key.lisp | primitive-node.lisp | the 16-byte `%hash` method, plus an explicit `defgeneric` |
-| structures/linear-hash.lisp | linear-hash.lisp | whole file; `open-lhash` signals when it cannot open, after unmapping what it mapped (vivace-graph's returned a handle whose files were unmapped) |
+| structures/linear-hash.lisp | linear-hash.lisp | whole file; `open-lhash` signals when it cannot open, after unmapping what it mapped (vivace-graph's returned a handle whose files were unmapped); `lhash-insert` does not log a split's error before re-signalling it (#5) |
 | structures/cl-store-ecl.lisp | cl-store-ecl.lisp | whole file (ECL only); header restored (#5) |
 | structures/cursors.lisp | cursors.lisp | whole file |
 | structures/skip-list.lisp | skip-list.lisp | all but the development and benchmark functions; one cached node object per address (`%sl-cache-node`), and add and remove re-read each locked predecessor's pointer before validating (two objects for one node livelocked concurrent writers) |

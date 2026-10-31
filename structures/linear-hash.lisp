@@ -727,12 +727,8 @@ from -- never the one recorded at creation (GH #143)."
     ;; read-lhash-level, re-acquiring the split-lock while a writer may
     ;; already be queued — new reads block, the queued writer never drains
     ;; R=1 → deadlock.
-    (handler-case
-        (when split-p
-          (split-lhash lhash))
-      (error (c)
-        (log:error "LHASH ERROR IN ~A SPLIT(): ~A" lhash c)
-        (error c)))
+    (when split-p
+      (split-lhash lhash))
     (read-lhash-count lhash)))
 
 (defun %lhash-update (lhash key val)

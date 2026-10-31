@@ -124,3 +124,21 @@ skipped unless include-free-p is set)."
              (is (equalp #(10 11 12 13 14 15 16 17)
                          (get-bytes mem2 offset 8)))
           (close-memory mem2))))))
+
+;;; New (#5): the heap is quiet for library users.
+
+(test growing-the-heap-logs-nothing
+  "Growing the heap, a routine event, writes nothing at log4cl's default
+level."
+  (with-temp-memory (mem)
+    (is (equal "" (log-output (lambda () (grow-memory mem 1)))))))
+
+(test a-signalled-heap-error-is-not-also-logged
+  "An error the heap signals is not written to the log as well: the
+caller gets the condition once, to handle as it likes."
+  (with-temp-memory (mem)
+    (is (equal "" (log-output
+                   (lambda ()
+                     (signals error (free mem 0))
+                     (signals error (set-byte mem 0 1))
+                     (signals error (serialize-uint64 mem 1 0))))))))

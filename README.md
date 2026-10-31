@@ -183,6 +183,17 @@ vivace-cabinet's three engines, and writes a report;
 `docs/benchmarks/README.md` says how, and what each number means.
 `bench/run.sh --quick` checks the harness in a few minutes.
 
+## Logging
+
+The library logs through log4cl under the category `vivace-cabinet`. At
+log4cl's default level nothing is written in normal use: an error the
+library signals is not logged as well, and the structures' tracing is
+at debug level. Two things are logged at error level: a memory fault
+on a mapped file, which is retried, and an error swallowed while
+acquiring a write lock. `(log:config '(vivace-cabinet) :off)` silences
+the library and `(log:config '(vivace-cabinet) :debug)` turns the
+tracing on.
+
 ## Limits
 
 - **No crash safety.** Writes go straight to shared memory maps and reach
