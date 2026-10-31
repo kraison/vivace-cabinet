@@ -54,13 +54,18 @@ A TreeDB keeps its records in key order:
       (vivace-cabinet:db-set db "pear" "green")
       (vivace-cabinet:db-set db "apple" "red"))
 
-`:type :tree` chooses TreeDB when creating; an existing database opens as
-whatever it is, and a `:type` or `:engine` that does not match it signals
-`open-error`. A writer's `:truncate` keeps the type and engine unless
-`:type` or `:engine` names others. TreeDB takes `:engine` (`:bplus-tree`, the default, or
-`:skip-list`), `:page-size` (B+ tree pages of 1024 to 32768 bytes, 4096
-by default), `:comparator` (a strict less-than on octet vectors; the
-default, `octets<`, is unsigned byte order) and the heap keywords.
+`:type :tree` chooses TreeDB when creating, as does `:engine` on its own;
+an existing database opens as whatever it is, and a `:type` or `:engine`
+that does not match it signals `open-error`. A writer's `:truncate` keeps
+the type and engine unless `:type` or `:engine` names others. TreeDB
+takes `:engine` (`:bplus-tree`, the default, or `:skip-list`),
+`:page-size` (B+ tree pages of 1024 to 32768 bytes, 4096 by default),
+`:comparator` (a strict less-than on octet vectors; the default,
+`octets<`, is unsigned byte order) and the heap keywords. A keyword for
+the other type (`:buckets` on a TreeDB, `:comparator` on a HashDB), or
+one `open-db` does not know, signals `invalid-argument`. `:page-size`,
+like the other creation-time tuning, is ignored when an existing
+database opens.
 
 As in Kyoto Cabinet, an operation that fails for an ordinary reason (adding
 a key that exists, removing one that doesn't, writing to a reader, a
@@ -227,13 +232,18 @@ tracing on.
   again by walking the whole index.
 - **Address space.** Each mapped file reserves 8 times its size, at least
   1 GiB, of virtual address space: about 17 GiB per linear hash. A
-  HashDB's heap reserves `:heap-reservation` (64 GiB by default), so an
-  open HashDB holds about 81 GiB. Limits on address space (`ulimit -v`)
-  count these.
-- **Growth stops at the reservation.** A HashDB's heap cannot grow past
-  `:heap-reservation` until it is reopened, and each linear-hash file
-  stops at 8000 MiB; the write signals `reservation-exhausted` and the
-  database stays usable. Using the structures directly, bind
+  database's heap reserves `:heap-reservation` (64 GiB by default), so
+  an open HashDB holds about 81 GiB and an open TreeDB 64 GiB. Limits on
+  address space (`ulimit -v`) count these.
+- **Growth stops at the reservation.** A database's heap cannot grow
+  past `:heap-reservation` until it is reopened, and each of a HashDB's
+  linear-hash files stops at 8000 MiB; the write signals
+  `reservation-exhausted` and the database stays usable. A B+ tree put
+  that splits a page first takes a page per level of the tree, plus one,
+  from the heap, and signals when the reservation has not got them all,
+  though the split itself may need one: the price of a put that signals
+  with the tree as it was, never half split. Using the structures
+  directly, bind
   `vivace-cabinet::*mmap-reservation-multiplier*` or
   `vivace-cabinet::*mmap-min-reservation*` before creating or opening to
   reserve more.
@@ -247,9 +257,15 @@ tracing on.
   operation fails with an undefined function. The engines pass theirs.
 - **Comparators are not stored.** Open a TreeDB with the same
   `:comparator` every time; another order misplaces records silently.
+- **A comparator may equate only identical keys.** Per-key locks and the
+  skip list's nodes go by a key's bytes, so under a comparator that holds
+  two different byte strings equal (a case-insensitive one, say)
+  `db-add`, `db-replace`, `db-append`, `db-seize`, the visitors and
+  compare-and-swap are not atomic between those keys, and skip-list puts
+  of them can collide.
 - **The skip list frees removed records at close.** On the skip-list
   engine, removing or replacing a record unlinks it at once but frees
-  its space only at `close-db`.
+  its space only at `close-db`, or at `db-clear`, which empties the heap.
 - **Skip-list cursors can miss a key being replaced.** The skip-list
   engine replaces a value by removing and re-adding its record, so a
   cursor passing that key at that moment does not see it.

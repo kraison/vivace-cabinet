@@ -147,9 +147,28 @@ are dead the moment the next page is chosen."
       (cffi:foreign-funcall "memcpy" :pointer dst :pointer src :size ps :pointer))
     addr))
 
+(defvar *bpt-reserve* '()
+  "Pages taken from the heap ahead of a split, so that an allocation
+that fails leaves the tree as it was (#7).  %BPT-INSERT-TOP binds it
+and frees what a split does not use.")
+
+(defvar *bpt-leaf-written* nil
+  "Set to T when an insert has written its entry into a leaf, so a
+caller that unwinds knows whether the tree holds the value (#7).")
+
+(defun %bpt-reserve-pages (tree)
+  "Before a split writes anything, take from the heap every page the
+splits above it may need: one per level and a new root (#7).  A heap
+that has none signals here, with the tree untouched."
+  (when (null *bpt-reserve*)
+    (dotimes (i (1+ (%bpt-height tree)))
+      (push (allocate (%bpt-heap tree) (%bpt-page-size tree))
+            *bpt-reserve*))))
+
 (defun %bpt-alloc-page (tree)
   "Allocate a fresh zeroed page from the heap; return its address."
-  (let ((addr (allocate (%bpt-heap tree) (%bpt-page-size tree))))
+  (let ((addr (or (pop *bpt-reserve*)
+                  (allocate (%bpt-heap tree) (%bpt-page-size tree)))))
     ;; ALLOCATE may hand back a reused (previously freed) block with stale bytes;
     ;; zero the header region we rely on.  Cell area is addressed via the slot
     ;; directory, so stale cell bytes are harmless once count/free are reset.
@@ -537,6 +556,9 @@ or (SEP-DKEY SEP-SKEY RIGHT-ADDR)."
                                                  (if leaf-p mid (1+ mid)))))
             (error "B+ tree: entries too large for two ~A-byte pages"
                    (%bpt-page-size tree)))
+          (%bpt-reserve-pages tree)
+          (when leaf-p
+            (setf *bpt-leaf-written* t))
           (if leaf-p
               ;; Leaf split: right keeps the upper half; its first key is copied
               ;; up as the separator (the key itself STAYS in the right leaf).
@@ -576,57 +598,88 @@ Returns (SEP-DKEY SEP-SKEY RIGHT-ADDR)."
     (%bpt-store-or-split tree addr nil link
                          (%bpt-insert-sorted-internal tree entries sep-dkey sep-skey right-addr))))
 
-(defun %bpt-insert (tree addr dkey skey sval)
+(defun %bpt-insert (tree addr dkey skey sval &optional replace)
+  "Insert under the page at ADDR.  Returns :DUP (DKEY present, no
+REPLACE), :NO-SPLIT or (SEP-DKEY SEP-SKEY RIGHT-ADDR), and second the
+serialized value REPLACE displaced, if any."
   (let* ((buf (%bpt-read-page tree addr))
          (n (buf-u16 buf +bpt-p-count-offset+)))
     (if (%bpt-leaf-p buf)
-        ;; Leaf: locate the key; equal => duplicate no-op; else insert after the
-        ;; last key < DKEY, in place if it fits, otherwise split.
+        ;; Leaf: locate the key; insert after the last key < DKEY, in
+        ;; place if it fits, otherwise split.  A replaced entry leaves
+        ;; the buffer first, so the one page write that installs the new
+        ;; value removes the old (#7).
         (multiple-value-bind (idx exact) (%bpt-page-bsearch tree buf n dkey)
-          (if exact
+          (if (and exact (not replace))
               :dup
-              (let ((ins (1+ idx)))
-                (if (%bpt-page-insert-at tree buf t ins skey sval)
-                    (progn (%bpt-write-page tree addr buf) :no-split)
-                    (%bpt-split-leaf tree addr buf dkey skey sval)))))
-        ;; Internal: descend to the right child, then absorb any split it returns.
+              (let ((ins (if exact idx (1+ idx)))
+                    (old (and exact
+                              (%bpt-cell-sval buf (%bpt-slot-off buf idx)))))
+                (when exact
+                  (%bpt-page-delete-at buf idx))
+                (values (if (%bpt-page-insert-at tree buf t ins skey sval)
+                            (progn (setf *bpt-leaf-written* t)
+                                   (%bpt-write-page tree addr buf)
+                                   :no-split)
+                            (%bpt-split-leaf tree addr buf dkey skey sval))
+                        old))))
+        ;; Internal: descend to the right child, then absorb any split it
+        ;; returns.
         (multiple-value-bind (idx exact) (%bpt-page-bsearch tree buf n dkey)
           (declare (ignore exact))
-          (let* ((child (if (< idx 0) (buf-u64 buf +bpt-p-link-offset+) (%bpt-slot-child buf idx)))
-                 (res (%bpt-insert tree child dkey skey sval)))
-            (cond ((eq res :dup) :dup)
-                  ((eq res :no-split) :no-split)
-                  (t
-                   (destructuring-bind (sep-dkey sep-skey right-addr) res
-                     ;; BUF is our snapshot; the recursion only touched descendants,
-                     ;; so it is still valid.  Insert the separator in place or split.
-                     (multiple-value-bind (sidx sx) (%bpt-page-bsearch tree buf n sep-dkey)
-                       (declare (ignore sx))
-                       (let ((sins (1+ sidx)))
-                         (if (%bpt-page-insert-at tree buf nil sins sep-skey right-addr)
-                             (progn (%bpt-write-page tree addr buf) :no-split)
-                             (%bpt-split-internal tree addr buf sep-dkey sep-skey right-addr))))))))))))
+          (let ((child (if (< idx 0)
+                           (buf-u64 buf +bpt-p-link-offset+)
+                           (%bpt-slot-child buf idx))))
+            (multiple-value-bind (res old)
+                (%bpt-insert tree child dkey skey sval replace)
+              (values
+               (cond ((eq res :dup) :dup)
+                     ((eq res :no-split) :no-split)
+                     (t
+                      (destructuring-bind (sep-dkey sep-skey right-addr) res
+                        ;; BUF is our snapshot; the recursion only touched
+                        ;; descendants, so it is still valid.  Insert the
+                        ;; separator in place or split.
+                        (multiple-value-bind (sidx sx)
+                            (%bpt-page-bsearch tree buf n sep-dkey)
+                          (declare (ignore sx))
+                          (let ((sins (1+ sidx)))
+                            (if (%bpt-page-insert-at tree buf nil sins
+                                                     sep-skey right-addr)
+                                (progn (%bpt-write-page tree addr buf)
+                                       :no-split)
+                                (%bpt-split-internal tree addr buf sep-dkey
+                                                     sep-skey right-addr)))))))
+               old)))))))
 
-(defun %bpt-insert-top (tree dkey skey sval)
-  "BPT-INSERT's work, for a caller holding the tree's write lock."
-  (let ((res (%bpt-insert tree (%bpt-root tree) dkey skey sval)))
-    (cond ((eq res :dup) nil)
-          (t
-           (when (consp res)
-             ;; Root split: grow a new internal root.
-             (destructuring-bind (sep-dkey sep-skey right-addr) res
-               (let ((new-root (%bpt-alloc-page tree))
-                     (old-root (%bpt-root tree)))
-                 (%bpt-write-page
-                  tree new-root
-                  (%bpt-encode-page tree nil old-root
-                                    (list (list sep-dkey sep-skey
-                                                right-addr))))
-                 (setf (%bpt-root tree) new-root)
-                 (incf (%bpt-height tree)))))
-           (incf (%bpt-count tree))
-           (%bpt-sync-root tree)
-           t))))
+(defun %bpt-insert-top (tree dkey skey sval &optional replace)
+  "BPT-INSERT's work, for a caller holding the tree's write lock.  With
+REPLACE a present DKEY takes the new value in its place: (values T
+old-sval).  An allocation that fails leaves the tree as it was (#7)."
+  (let ((*bpt-reserve* '()))
+    (unwind-protect
+         (multiple-value-bind (res old)
+             (%bpt-insert tree (%bpt-root tree) dkey skey sval replace)
+           (cond ((eq res :dup) nil)
+                 (t
+                  (when (consp res)
+                    ;; Root split: grow a new internal root.
+                    (destructuring-bind (sep-dkey sep-skey right-addr) res
+                      (let ((new-root (%bpt-alloc-page tree))
+                            (old-root (%bpt-root tree)))
+                        (%bpt-write-page
+                         tree new-root
+                         (%bpt-encode-page tree nil old-root
+                                           (list (list sep-dkey sep-skey
+                                                       right-addr))))
+                        (setf (%bpt-root tree) new-root)
+                        (incf (%bpt-height tree)))))
+                  (unless old
+                    (incf (%bpt-count tree)))
+                  (%bpt-sync-root tree)
+                  (values t old))))
+      (dolist (addr *bpt-reserve*)
+        (free (%bpt-heap tree) addr)))))
 
 (defun bpt-insert (tree dkey skey sval)
   "Insert DKEY -> value.  DKEY is the deserialized key; SKEY / SVAL the serialized

@@ -29,13 +29,15 @@ TreeDB's default comparator."
 
 (defgeneric engine-count (engine))
 
-(defgeneric engine-ceiling (engine key strict)
+(defgeneric engine-ceiling (engine key strict &optional value-p)
   (:documentation "The first record at or after KEY (after it when
-STRICT) as (values key value), or NIL; the first record when KEY is NIL."))
+STRICT) as (values key value), or NIL; the first record when KEY is NIL.
+With VALUE-P NIL (T by default), the key alone: the value is not read."))
 
-(defgeneric engine-floor (engine key strict)
+(defgeneric engine-floor (engine key strict &optional value-p)
   (:documentation "The last record at or before KEY (before it when
-STRICT) as (values key value), or NIL; the last record when KEY is NIL."))
+STRICT) as (values key value), or NIL; the last record when KEY is NIL.
+With VALUE-P NIL, the key alone."))
 
 (defgeneric engine-address (engine)
   (:documentation "Where the engine's header lies in the heap."))

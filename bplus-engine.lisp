@@ -170,14 +170,14 @@ search the subtrees left of the descent's path, nearest first."
              (length key) (%bpe-quarter e)))
   (let ((tree (%bpe-tree e))
         (sval (%bpe-encode e key value))
-        (old nil))
-    (with-bpt-write-lock (tree)
-      (multiple-value-bind (osval found) (%bpt-find tree key)
-        (when found
-          (setf old osval)
-          (%bpt-remove-top tree key)))
-      (%bpt-insert-top tree key key sval))
-    (%bpe-free e old)
+        (old nil)
+        (*bpt-leaf-written* nil))
+    ;; Once a leaf holds the new value, the record it replaced is freed;
+    ;; until then a put that signals frees the record it wrote (#7).
+    (unwind-protect
+         (with-bpt-write-lock (tree)
+           (setf old (nth-value 1 (%bpt-insert-top tree key key sval t))))
+      (%bpe-free e (if *bpt-leaf-written* old sval)))
     t))
 
 (defmethod engine-delete ((e bplus-engine) key)
@@ -195,17 +195,24 @@ search the subtrees left of the descent's path, nearest first."
 (defmethod engine-count ((e bplus-engine))
   (bplus-tree-count (%bpe-tree e)))
 
-(defmethod engine-ceiling ((e bplus-engine) key strict)
+(defun %bpe-entry (e k sval value-p)
+  "The entry K and SVAL as the engine returns it: (values K value), or
+K alone when VALUE-P is NIL, so a step reads no value (#7)."
+  (cond ((null k) nil)
+        (value-p (values k (%bpe-decode e sval)))
+        (t k)))
+
+(defmethod engine-ceiling ((e bplus-engine) key strict &optional (value-p t))
   (let ((tree (%bpe-tree e)))
     (with-bpt-read-lock (tree)
       (multiple-value-bind (k sval) (%bpt-ceiling tree key strict)
-        (and k (values k (%bpe-decode e sval)))))))
+        (%bpe-entry e k sval value-p)))))
 
-(defmethod engine-floor ((e bplus-engine) key strict)
+(defmethod engine-floor ((e bplus-engine) key strict &optional (value-p t))
   (let ((tree (%bpe-tree e)))
     (with-bpt-read-lock (tree)
       (multiple-value-bind (k sval) (%bpt-floor tree key strict)
-        (and k (values k (%bpe-decode e sval)))))))
+        (%bpe-entry e k sval value-p)))))
 
 (defmethod engine-address ((e bplus-engine))
   (%bpt-address (%bpe-tree e)))

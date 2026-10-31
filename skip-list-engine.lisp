@@ -54,9 +54,12 @@ the key, so the sentinels' :END must never match, not even an empty key."
                  :sl (apply #'open-skip-list :heap heap :address address
                             (%sle-args less))))
 
-(defun %sle-copies (node)
-  "Copies of NODE's key and value, as (values key value)."
-  (values (copy-seq (%sn-key node)) (copy-seq (%sn-value node))))
+(defun %sle-copies (node &optional (value-p t))
+  "Copies of NODE's key and value, as (values key value); the key alone
+when VALUE-P is NIL."
+  (if value-p
+      (values (copy-seq (%sn-key node)) (copy-seq (%sn-value node)))
+      (copy-seq (%sn-key node))))
 
 (defun %sle-real-p (sl node)
   "True unless NODE is NIL or SL's head or tail."
@@ -101,7 +104,8 @@ until the next node is the tail."
 (defmethod engine-count ((e skip-list-engine))
   (%sl-length (%sle-list e)))
 
-(defmethod engine-ceiling ((e skip-list-engine) key strict)
+(defmethod engine-ceiling ((e skip-list-engine) key strict
+                           &optional (value-p t))
   (let* ((sl (%sle-list e))
          (node (if key
                    (nth-value 1 (%sle-search sl key))
@@ -110,9 +114,10 @@ until the next node is the tail."
                (funcall (%sl-key-equal sl) key (%sn-key node)))
       (setf node (node-forward sl node)))
     (when (%sle-real-p sl node)
-      (%sle-copies node))))
+      (%sle-copies node value-p))))
 
-(defmethod engine-floor ((e skip-list-engine) key strict)
+(defmethod engine-floor ((e skip-list-engine) key strict
+                         &optional (value-p t))
   (let* ((sl (%sle-list e))
          (node (if key
                    (multiple-value-bind (pred succ) (%sle-search sl key)
@@ -123,7 +128,7 @@ until the next node is the tail."
                          pred))
                    (%sle-last sl))))
     (when (%sle-real-p sl node)
-      (%sle-copies node))))
+      (%sle-copies node value-p))))
 
 (defmethod engine-address ((e skip-list-engine))
   (%sl-address (%sle-list e)))

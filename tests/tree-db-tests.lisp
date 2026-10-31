@@ -93,3 +93,42 @@ unless :TYPE or :ENGINE names others."
         (is (typep (tree-db-engine db) 'bplus-engine)))
       (with-db (db path :mode '(:writer :truncate) :type :hash)
         (is (typep db 'hash-db))))))
+
+(test keywords-for-the-other-type-signal
+  "A keyword for the other database type, or one OPEN-DB does not know,
+signals INVALID-ARGUMENT before anything is created.  :ENGINE alone
+chooses TreeDB, so on an existing HashDB it signals OPEN-ERROR as a
+:TYPE that does not match does (#7)."
+  (with-temp-directory (dir)
+    (let ((hash (merge-pathnames "h.vch/" dir))
+          (tree (merge-pathnames "t.vct/" dir)))
+      (signals invalid-argument (open-db tree :type :tree :buckets 8))
+      (signals invalid-argument (open-db tree :type :hash :engine :skip-list))
+      (signals invalid-argument (open-db tree :type :tree :bogus 1))
+      (is (null (probe-file tree)))
+      (with-db (db tree :engine :skip-list)
+        (is (typep (tree-db-engine db) 'skip-list-engine)))
+      (with-db (db hash)
+        (db-set db "k" "v"))
+      (signals invalid-argument (open-db hash :comparator #'octets<))
+      (signals invalid-argument (open-db hash :page-size 1024))
+      (signals open-error (open-db hash :engine :bplus-tree))
+      (with-db (db hash :mode '(:writer :truncate) :engine :skip-list)
+        (is (typep db 'tree-db))
+        (is (typep (tree-db-engine db) 'skip-list-engine))))))
+
+(test engine-nil-is-not-given
+  "An explicit :ENGINE NIL, OPEN-TREE-DB's own default, asks for no
+type: it creates a HashDB, opens an existing one, and a truncated TreeDB
+keeps its engine (#7)."
+  (with-temp-directory (dir)
+    (let ((hash (merge-pathnames "h.vch/" dir))
+          (tree (merge-pathnames "t.vct/" dir)))
+      (with-db (db hash :engine nil)
+        (is (typep db 'hash-db)))
+      (with-db (db hash :engine nil)
+        (is (typep db 'hash-db)))
+      (with-db (db tree :type :tree :engine :skip-list)
+        (db-set db "k" "v"))
+      (with-db (db tree :mode '(:writer :truncate) :engine nil)
+        (is (typep (tree-db-engine db) 'skip-list-engine))))))

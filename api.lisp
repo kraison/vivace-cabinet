@@ -52,14 +52,32 @@ cannot be read (opening then reports that)."
   (and (probe-file (%header-file dir))
        (ignore-errors (%read-header dir))))
 
-(defun open-db (path &rest args &key (type nil type-p) (engine nil engine-p)
-                                     mode &allow-other-keys)
+(defparameter *hash-db-keywords*
+  '(:mode :buckets :max-locks :heap-size :heap-reservation))
+
+(defparameter *tree-db-keywords*
+  '(:mode :engine :page-size :comparator :heap-size :heap-reservation))
+
+(defun %check-keywords (type args)
+  "Signal INVALID-ARGUMENT for a keyword in the plist ARGS that OPEN-DB
+does not take for a TYPE database (#7)."
+  (let ((bad (loop for (k) on args by #'cddr
+                   unless (member k (ecase type
+                                      (:hash *hash-db-keywords*)
+                                      (:tree *tree-db-keywords*)))
+                     collect k)))
+    (when bad
+      (%signal 'invalid-argument "not keywords for a ~(~a~) database: ~{~s~^ ~}"
+               type bad))))
+
+(defun open-db (path &rest args &key (type nil type-p) engine mode
+                                &allow-other-keys)
   "Open the database in directory PATH (a trailing / is added).  An
 existing database opens as the type it is; TYPE (:HASH by default)
-chooses what to create, and must match when given.  A writer's :TRUNCATE
-keeps the type and engine unless TYPE or ENGINE names others.  Other
-keywords: OPEN-HASH-DB and OPEN-TREE-DB."
-  (declare (ignore engine))
+chooses what to create, and must match when given; ENGINE alone implies
+:TREE.  A writer's :TRUNCATE keeps the type and engine unless TYPE or
+ENGINE names others.  Other keywords: OPEN-HASH-DB and OPEN-TREE-DB; one
+for the other type signals INVALID-ARGUMENT."
   (when (and type-p (not (member type '(:hash :tree))))
     (%signal 'invalid-argument "unknown database type ~s" type))
   (let* ((dir (uiop:ensure-directory-pathname (merge-pathnames path)))
@@ -67,13 +85,20 @@ keywords: OPEN-HASH-DB and OPEN-TREE-DB."
          (found (getf header :type))
          (truncating (and (listp mode) (member :writer mode)
                           (member :truncate mode)))
-         (args (alexandria:remove-from-plist args :type)))
-    (when (and found type-p (not (eq found type)) (not truncating))
+         ;; The type asked for: TYPE, or :TREE when only ENGINE says.
+         ;; :ENGINE NIL, OPEN-TREE-DB's own default, asks for nothing
+         ;; and is dropped (#7).
+         (asked (cond (type-p type) (engine :tree)))
+         (args (if engine
+                   (alexandria:remove-from-plist args :type)
+                   (alexandria:remove-from-plist args :type :engine))))
+    (when (and found asked (not (eq found asked)) (not truncating))
       (%signal 'open-error "~a: a ~(~a~) database, not ~(~a~)"
-               dir found type))
-    (let ((type (if (and truncating type-p) type (or found type :hash))))
+               dir found asked))
+    (let ((type (if (and truncating asked) asked (or found asked :hash))))
+      (%check-keywords type args)
       (when (and truncating (eq type :tree) (eq found :tree)
-                 (not engine-p))
+                 (null engine))
         (setf args (list* :engine (%engine-kind (getf header :engine))
                           args)))
       (ecase type
