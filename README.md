@@ -54,13 +54,16 @@ A TreeDB keeps its records in key order:
       (vivace-cabinet:db-set db "pear" "green")
       (vivace-cabinet:db-set db "apple" "red"))
 
-`:type :tree` chooses TreeDB when creating; an existing database opens as
-whatever it is, and a `:type` or `:engine` that does not match it signals
-`open-error`. A writer's `:truncate` keeps the type and engine unless
-`:type` or `:engine` names others. TreeDB takes `:engine` (`:bplus-tree`, the default, or
-`:skip-list`), `:page-size` (B+ tree pages of 1024 to 32768 bytes, 4096
-by default), `:comparator` (a strict less-than on octet vectors; the
-default, `octets<`, is unsigned byte order) and the heap keywords.
+`:type :tree` chooses TreeDB when creating, as does `:engine` on its own;
+an existing database opens as whatever it is, and a `:type` or `:engine`
+that does not match it signals `open-error`. A writer's `:truncate` keeps
+the type and engine unless `:type` or `:engine` names others. TreeDB
+takes `:engine` (`:bplus-tree`, the default, or `:skip-list`),
+`:page-size` (B+ tree pages of 1024 to 32768 bytes, 4096 by default),
+`:comparator` (a strict less-than on octet vectors; the default,
+`octets<`, is unsigned byte order) and the heap keywords. A keyword for
+the other type (`:buckets` on a TreeDB, `:comparator` on a HashDB), or
+one `open-db` does not know, signals `invalid-argument`.
 
 As in Kyoto Cabinet, an operation that fails for an ordinary reason (adding
 a key that exists, removing one that doesn't, writing to a reader, a
