@@ -246,7 +246,10 @@ From this directory, with Quicklisp:
       --eval '(ql:quickload :vivace-cabinet/test)' \
       --eval '(asdf:test-system :vivace-cabinet)'
 
-The process exits non-zero if any test fails. One linear-hash test copies
+The process exits non-zero if any test fails. Loading the tests fails
+if a test file redefines a library function or macro: the test package
+imports every library symbol, so a helper named like one would replace
+it. One linear-hash test copies
 a hash's two sparse 1000 MiB files without keeping them sparse, so the
 temp directory needs about 2 GB free; where `/tmp` is a small tmpfs, run
 with `TMPDIR=/var/tmp`.
