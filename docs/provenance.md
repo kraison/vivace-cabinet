@@ -5,6 +5,11 @@ Code under `substrate/` and `structures/` is copied from
 `853df62` (branch `experiment`, 2026-10-07), by `tools/extract-forms.py`,
 which copies whole top-level forms by their start line. Each copied file
 names its source in its first line. vivace-graph itself is not changed.
+Until #5 the tool dropped every comment not directly above a form, so
+a copy made before then lacks its source's section dividers and
+trailing notes; the two headers with design notes, rw-lock.lisp's and
+cl-store-ecl.lisp's, were put back from vivace-graph master (4d6bf30),
+whose forms are those copied.
 
 | vivace-cabinet file | vivace-graph source | What was copied |
 |---|---|---|
@@ -13,14 +18,14 @@ names its source in its first line. vivace-graph itself is not changed.
 | substrate/posix.lisp | posix.lisp | open, close, lseek, write, file extension, fchmod, mmap, munmap, msync, file size; their constants |
 | substrate/utilities.lisp | utilities.lisp | `proper-listp`, `make-byte-vector`, `with-gensyms`, CCL rw-lock shims |
 | substrate/queue.lisp | queue.lisp | whole file |
-| substrate/rw-lock.lisp | rw-lock.lisp | whole file |
+| substrate/rw-lock.lisp | rw-lock.lisp | whole file but a block-commented test function; comments restored (#5) |
 | substrate/mmap.lisp | mmap.lisp | mapped files, byte access, uint64 and pointer codecs; not the segment machinery |
 | substrate/buffers.lisp | (new) | stand-ins for buffer-pool.lisp's `get-buffer` and `get-skip-node-buffer` |
 | substrate/allocator.lisp | allocator.lisp | all but `test-allocator` |
 | substrate/heap-bytes.lisp | transactions.lisp | `set-bytes` on `memory` |
 | structures/hash-key.lisp | primitive-node.lisp | the 16-byte `%hash` method, plus an explicit `defgeneric` |
 | structures/linear-hash.lisp | linear-hash.lisp | whole file; `open-lhash` signals when it cannot open, after unmapping what it mapped (vivace-graph's returned a handle whose files were unmapped) |
-| structures/cl-store-ecl.lisp | cl-store-ecl.lisp | whole file (ECL only) |
+| structures/cl-store-ecl.lisp | cl-store-ecl.lisp | whole file (ECL only); header restored (#5) |
 | structures/cursors.lisp | cursors.lisp | whole file |
 | structures/skip-list.lisp | skip-list.lisp | all but the development and benchmark functions; one cached node object per address (`%sl-cache-node`), and add and remove re-read each locked predecessor's pointer before validating (two objects for one node livelocked concurrent writers) |
 | structures/skip-list-cursors.lisp | skip-list-cursors.lisp | whole file |

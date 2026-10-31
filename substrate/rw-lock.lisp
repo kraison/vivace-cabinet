@@ -2,11 +2,44 @@
 ;;;; See docs/provenance.md.
 
 (in-package #:vivace-cabinet)
+
+;;;; Custom read-write lock for SBCL / LispWorks / ECL.
+;;;; (CCL is excluded in graph-db.asd and uses ccl:make-read-write-lock via the
+;;;; shims in utilities.lisp.)
+;;;;
+;;;; Scaling design — targeted wakeup (fix #3):
+;;;;   The lock keeps a FIFO writer-queue plus a count of active readers.  To
+;;;;   avoid the O(N^2) thundering herd of the old "broadcast everyone on every
+;;;;   write release" scheme, each queued writer carries its OWN private wake
+;;;;   semaphore, and readers share a single condition variable:
+;;;;     * On write release, if a writer is queued we signal EXACTLY the front
+;;;;       writer's semaphore (one wakeup, FIFO).  A semaphore is level-triggered,
+;;;;       so a signal that lands before the writer parks is not lost.
+;;;;     * If no writer is queued, we broadcast the reader cv once, letting all
+;;;;       waiting readers proceed together (O(R) once, never O(N^2)).
+;;;;   The per-lock `semaphore' slot is unchanged: it is the "readers have
+;;;;   drained" signal that the single ACTIVE writer waits on while readers exit.
+;;;;
+;;;; Reader eligibility is unchanged from the original: a reader proceeds iff
+;;;; there is no active writer ((null lock-writer)).  This change alters only HOW
+;;;; waiters are woken, never WHO may proceed.
+;;;;
+;;;; Old ECL (no :graph-db-ecl-modern-mp) keeps the (sleep 0.001) poll fallback
+;;;; byte-for-byte: no waker is created, the reader cv is never touched, writers
+;;;; and readers poll lock-writer / lock-readers exactly as before (works around
+;;;; ECL 21.2.1 mp:wait-on-semaphore / condition-variable bugs).
+
 (defun print-rw-lock (lock stream depth)
   (declare (ignore depth))
   (print-unreadable-object (lock stream :type t :identity t)
     (format stream "W: ~A, R: ~A"
             (lock-writer lock) (lock-readers lock))))
+
+;;; ---------------------------------------------------------------------------
+;;; Per-writer wake token.  One is created per acquire-write-lock call (never
+;;; reused), so its waker is signalled at most once and waited on at most once.
+;;; On old ECL the waker is NIL (poll path; ww-signal / ww-wait are never called).
+;;; ---------------------------------------------------------------------------
 
 (defstruct (writer-wait (:conc-name ww-))
   (thread nil)
@@ -32,6 +65,10 @@
   #+lispworks (mp:semaphore-acquire (ww-waker ww))
   #+(and ecl graph-db-ecl-modern-mp) (mp:wait-on-semaphore (ww-waker ww))
   #+(and ecl (not graph-db-ecl-modern-mp)) nil)
+
+;;; ---------------------------------------------------------------------------
+;;; The lock.
+;;; ---------------------------------------------------------------------------
 
 (defstruct (rw-lock
              (:conc-name lock-)
@@ -79,6 +116,10 @@
   (with-recursive-lock-held ((lock-lock rw-lock))
     (%lock-unused-p rw-lock)))
 
+;;; ---------------------------------------------------------------------------
+;;; Per-impl wakeup / wait primitives (caller holds lock-lock unless noted).
+;;; ---------------------------------------------------------------------------
+
 (defun %reader-wait (rw-lock)
   "Block the current reader on the reader cv (caller holds lock-lock).
 Modern impls only; old ECL never calls this (it spin-sleeps instead)."
@@ -121,6 +162,10 @@ Old ECL: readers poll, so nothing to signal."
          (return)))
      (sleep 0.001)))
 
+;;; ---------------------------------------------------------------------------
+;;; Read lock.
+;;; ---------------------------------------------------------------------------
+
 (defun %decrement-readers (rw-lock)
   "Caller holds lock-lock. Decrements lock-readers, and if it reaches 0 and a writer is parked, signals lock-semaphore."
   (when (eql 0 (decf (lock-readers rw-lock)))
@@ -161,6 +206,10 @@ Old ECL: readers poll, so nothing to signal."
                   (error "Unable to get rw-lock: ~A" ,lock-var)))
          (when ,acquired-var
            (release-read-lock ,lock-var))))))
+
+;;; ---------------------------------------------------------------------------
+;;; Write lock.
+;;; ---------------------------------------------------------------------------
 
 (defun release-write-lock (rw-lock &key reading-p)
   (with-recursive-lock-held ((lock-lock rw-lock))
