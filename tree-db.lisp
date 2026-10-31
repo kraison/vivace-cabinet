@@ -24,14 +24,16 @@
   (engine-count (tree-db-engine db)))
 
 (defun %open-heap (db create)
-  "Create or open DB's heap within its address-space reservation."
+  "Create or open DB's heap within its address-space reservation; a
+reader's is mapped read-only."
   (destructuring-bind (&key heap-size heap-reservation &allow-other-keys)
       (%db-tuning db)
     (let ((*mmap-min-reservation* heap-reservation)
           (file (namestring (%heap-file (%db-dir db)))))
       (setf (%db-heap db) (if create
                               (create-memory file heap-size)
-                              (open-memory file))))))
+                              (open-memory file :writable
+                                           (%db-writable-p db)))))))
 
 (defmethod %create-storage ((db tree-db))
   (destructuring-bind (&key engine page-size comparator &allow-other-keys)
@@ -71,24 +73,27 @@
     (close-memory (%db-heap db))
     (setf (%db-heap db) nil)))
 
-(defmethod %sync-storage ((db tree-db))
-  (sync-region (memory-mmap (%db-heap db))))
+(defmethod %sync-storage ((db tree-db) hard)
+  (sync-region (memory-mmap (%db-heap db))
+               :sync (if hard +ms-sync+ +ms-async+)))
 
 (defun open-tree-db (dir &key (mode '(:writer :create)) engine
                            (page-size 4096) (comparator 'octets<)
                            (heap-size (* 64 1024 1024))
                            (heap-reservation (* 64 1024 1024 1024)))
   "Open the TreeDB in DIR.  ENGINE is :BPLUS-TREE (the default when
-creating) or :SKIP-LIST; PAGE-SIZE (1024 to 32768) applies to a new B+
-tree.  COMPARATOR, a strict less-than on octet vectors, is not stored:
-pass the same one at every open.  MODE and the heap keywords are as for
-OPEN-HASH-DB."
+creating) or :SKIP-LIST; PAGE-SIZE (1024 to 32768) and HEAP-SIZE apply
+only to a new database.  COMPARATOR, a strict less-than on octet
+vectors, is not stored: pass the same one at every open.  MODE and
+HEAP-RESERVATION are as for OPEN-HASH-DB."
   (%check-mode mode)
   (unless (member engine '(nil :bplus-tree :skip-list))
     (%signal 'invalid-argument "unknown TreeDB engine ~s" engine))
   (unless (and (integerp page-size) (<= 1024 page-size 32768))
     (%signal 'invalid-argument "PAGE-SIZE must be 1024 to 32768: ~s"
              page-size))
+  (%check-count :heap-size heap-size 0)
+  (%check-count :heap-reservation heap-reservation 0)
   (%open-database
    (make-instance 'tree-db :dir dir
                            :writable (and (member :writer mode) t)
@@ -173,7 +178,7 @@ OPEN-HASH-DB."
           (%fail db :no-record)))))
 
 (defmethod %size ((db tree-db))
-  "Bytes the heap has used."
+  "Bytes the heap has used so far; a high-water mark, as for HashDB."
   (read-memory-pointer (%db-heap db)))
 
 ;;; Visiting

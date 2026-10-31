@@ -183,3 +183,234 @@ count; the next open counts the records again, chains included."
         (is (eq :hash (getf header :type)))
         (is (= 1 (getf header :count)))
         (is (null (getf header :open)))))))
+
+(defun mapping-permissions (dir)
+  "The permission column of each line of /proc/self/maps that names a
+file under DIR, or :UNKNOWN where there is no /proc."
+  (if (probe-file "/proc/self/maps")
+      (let ((prefix (namestring (truename dir))))
+        (with-open-file (in "/proc/self/maps")
+          (loop for line = (read-line in nil)
+                while line
+                when (search prefix line)
+                  collect (second (uiop:split-string line :separator " ")))))
+      :unknown))
+
+(def-db-test readers-map-read-only
+  "A reader maps the files read-only (#6), so it opens a database whose
+files it may not write; on Linux /proc/self/maps shows the protection."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "ro.vch/" dir)))
+      (with-test-db (db path)
+        (db-set db "k" "v")
+        (let ((perms (mapping-permissions path)))
+          (unless (eq perms :unknown)
+            (is (member "rw-s" perms :test #'equal)))))
+      (uiop:run-program (list "chmod" "-R" "a-w" (namestring path)))
+      (unwind-protect
+           (with-test-db (db path :mode '(:reader))
+             (is (equal "v" (db-get db "k" :as :string)))
+             (is (= 1 (db-count db)))
+             (let ((perms (mapping-permissions path)))
+               (unless (eq perms :unknown)
+                 (is (and perms (every (lambda (p) (equal p "r--s")) perms))
+                     "a reader's mappings: ~a" perms))))
+        (uiop:run-program (list "chmod" "-R" "u+w" (namestring path)))))))
+
+(defun truncate-file (path n)
+  "Cut the file at PATH down to its first N bytes."
+  (let ((head (make-array n :element-type '(unsigned-byte 8))))
+    (with-open-file (in path :element-type '(unsigned-byte 8))
+      (read-sequence head in))
+    (with-open-file (out path :direction :output :if-exists :supersede
+                              :element-type '(unsigned-byte 8))
+      (write-sequence head out))))
+
+(defun fill-db (path n)
+  "A database at PATH holding N records of 100 bytes."
+  (with-test-db (db path)
+    (dotimes (i n)
+      (db-set db (keyed i) (make-string 100 :initial-element #\x)))))
+
+(test truncated-index-signals
+  "An index file shorter than its bucket count or overflow pointer says
+signals OPEN-ERROR instead of reading as empty or faulting (#6)."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "ti.vch/" dir)))
+      (fill-db path 200)
+      (truncate-file (merge-pathnames "index/table.dat" path) 1000)
+      (signals open-error (open-db path))
+      (signals open-error (open-db path :mode '(:reader))))
+    (let ((path (merge-pathnames "to.vch/" dir)))
+      (fill-db path 200)
+      (truncate-file (merge-pathnames "index/overflow.dat" path) 1)
+      (signals open-error (open-db path)))
+    (let ((path (merge-pathnames "tcf.vch/" dir)))
+      (fill-db path 200)
+      (truncate-file (merge-pathnames "index/config.dat" path) 70)
+      (signals open-error (open-db path)))))
+
+(def-db-test truncated-heap-signals
+  "A heap shorter than its own allocation pointer signals OPEN-ERROR at
+open rather than a memory fault at the first lookup past its end (#6)."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "th.vch/" dir)))
+      (fill-db path 2000)
+      (truncate-file (merge-pathnames "heap.dat" path) 100000)
+      (signals open-error (open-test-db path))
+      (signals open-error (open-test-db path :mode '(:reader))))))
+
+(test header-is-replaced-whole
+  "The header goes to header.tmp and is renamed over header.dat (#6), so
+a reader of the old file sees all of it, never a truncated one; :HARD
+makes the replacement durable."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "hr.vch/" dir)))
+      (with-db (db path)
+        (db-set db "a" "1")
+        (db-synchronize db)
+        (with-open-file (old (merge-pathnames "header.dat" path)
+                             :element-type '(unsigned-byte 8))
+          (db-set db "b" "2")
+          (is-true (db-synchronize db :hard t))
+          (is (null (probe-file (merge-pathnames "header.tmp" path))))
+          (let ((h (make-array +header-bytes+
+                               :element-type '(unsigned-byte 8))))
+            (is (= +header-bytes+ (read-sequence h old)))
+            (is (= 1 (%get-u64 h 8)))))
+        (is (= 2 (header-count path)))))))
+
+(test bad-tuning-signals
+  "Tuning keywords that are not integers in range signal
+INVALID-ARGUMENT at open, not DIVISION-BY-ZERO at the first use (#6)."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "bt.vch/" dir)))
+      (signals invalid-argument (open-db path :buckets 0))
+      (signals invalid-argument (open-db path :max-locks 0))
+      (signals invalid-argument (open-db path :buckets "x"))
+      (signals invalid-argument (open-db path :heap-size -1))
+      (signals invalid-argument (open-db path :heap-reservation nil))
+      (signals invalid-argument (open-db path :type :tree :heap-size 1.5))
+      (is (null (probe-file path))))))
+
+(test a-file-is-not-a-database
+  "A path naming a file signals OPEN-ERROR (#6)."
+  (with-temp-directory (dir)
+    (let ((file (merge-pathnames "plain" dir)))
+      (with-open-file (s file :direction :output)
+        (write-line "x" s))
+      (signals open-error (open-db file))
+      (signals open-error (open-db file :mode '(:reader))))))
+
+(def-db-test reservation-exhaustion-signals
+  "Growing the heap past its reservation signals RESERVATION-EXHAUSTED
+(#6), and the records already stored stay readable."
+  (with-temp-db (db :heap-size (* 1024 1024) :heap-reservation 1)
+    (db-set db "first" "v")
+    (signals reservation-exhausted
+      (dotimes (i 20)
+        (db-set db (keyed i) (make-string 100000 :initial-element #\x))))
+    (is (equal "v" (db-get db "first" :as :string)))))
+
+(def-db-test autosync-skips-failures-and-closed-databases
+  "Under :AUTOSYNC a write that fails logically does not synchronize,
+and a write whose database another thread closed before its
+synchronize does not signal (#6)."
+  (with-temp-directory (dir)
+    (let* ((path (merge-pathnames "as.vch/" dir))
+           (header (merge-pathnames "header.dat" path))
+           (db (open-test-db path :mode '(:writer :create :autosync))))
+      (db-set db "k" "v")
+      (delete-file header)
+      (is (null (db-add db "k" "w")))
+      (is (null (probe-file header)))
+      (is (null (db-replace db "absent" "w")))
+      (is (null (probe-file header)))
+      (is-true (db-set db "k" "w"))
+      (is-true (probe-file header))
+      (close-db db)
+      (finishes (%autosync db))
+      (is (null (getf (%read-header path) :open))))))
+
+(test open-error-keeps-its-cause
+  "An OPEN-ERROR from a failure in the files carries that condition as
+its cause; one from this library's own refusal has none (#6)."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "oc.vch/" dir)))
+      (handler-case (progn (open-db path :mode '(:reader))
+                           (fail "opened a missing database"))
+        (open-error (e)
+          (is (null (open-error-cause e)))))
+      (with-db (db path) (db-set db "k" "v"))
+      (with-open-file (s (merge-pathnames "index/table.dat" path)
+                         :direction :output :if-exists :overwrite
+                         :element-type '(unsigned-byte 8))
+        (write-byte 0 s))
+      (handler-case (progn (open-db path)
+                           (fail "opened a damaged database"))
+        (open-error (e)
+          (is (typep (open-error-cause e) 'error))
+          (is (search "magic" (princ-to-string (open-error-cause e)))))))))
+
+(test close-syncs-the-storage-before-the-clean-header
+  "CLOSE-DB syncs the heap and index to the device while the header
+still says open, and only then writes the clean header hard (#6), so a
+power loss between the two cannot leave a clean header over stale data."
+  (with-temp-directory (dir)
+    (let* ((path (merge-pathnames "co.vch/" dir))
+           (db (open-db path))
+           (seen '())
+           (method (defmethod %sync-storage :around ((db database) hard)
+                     (push (list hard (getf (%read-header (%db-dir db))
+                                            :open))
+                           seen)
+                     (call-next-method))))
+      (unwind-protect
+           (progn
+             (db-set db "k" "v")
+             (close-db db)
+             (is (equal '((t t)) seen)))
+        (remove-method #'%sync-storage method))
+      (is (null (getf (%read-header path) :open))))))
+
+(defun file-mode-string (path)
+  "The permission field of `ls -l` for PATH, such as -rw-r--r--."
+  (subseq (uiop:run-program (list "ls" "-ld" (namestring path))
+                            :output :string)
+          0 10))
+
+(test header-mode-follows-the-umask
+  "header.dat is created with mode #o666 less the umask, as any file is
+(#6), not a fixed #o640 that drops the group write a second writer
+account needs."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "hm.vch/" dir))
+          (plain (merge-pathnames "plain" dir)))
+      (with-open-file (s plain :direction :output)
+        (write-line "x" s))
+      (with-db (db path)
+        (db-set db "k" "v")
+        (db-synchronize db))
+      (is (equal (file-mode-string plain)
+                 (file-mode-string (merge-pathnames "header.dat" path)))))))
+
+(test reservation-exhaustion-leaves-a-chain-whole
+  "A DB-SET that exhausts the reservation while its key's bucket already
+holds a chain changes nothing (#6): the count stays, the key is absent
+and the chain's records read back, whether the key was new or present."
+  (with-temp-directory (dir)
+    (let ((*key-digest* (constant-digest 7))
+          (big (make-string 2000000 :initial-element #\x)))
+      (with-db (db (merge-pathnames "rc.vch/" dir)
+                   :heap-size (* 1024 1024) :heap-reservation 1)
+        (db-set db "a" "1")
+        (db-set db "b" "2")
+        (signals reservation-exhausted (db-set db "big" big))
+        (is (= 2 (db-count db)))
+        (is (null (db-get db "big")))
+        (is (eq :no-record (db-error db)))
+        (is (equal "1" (db-get db "a" :as :string)))
+        (is (equal "2" (db-get db "b" :as :string)))
+        (signals reservation-exhausted (db-set db "a" big))
+        (is (= 2 (db-count db)))
+        (is (equal "1" (db-get db "a" :as :string)))))))

@@ -17,16 +17,16 @@ back from vivace-graph master (4d6bf30), whose forms are those copied.
 |---|---|---|
 | substrate/globals.lisp | globals.lisp | ECL feature gates, `*cache-enabled*`, heap and linear-hash constants, mmap reservation parameters, `+skip-list+`, `*max-locks*` |
 | substrate/conditions.lisp | conditions.lisp | serialization, deserialization, duplicate-key and nonexistent-key conditions |
-| substrate/posix.lisp | posix.lisp | open, close, lseek, write, file extension, fchmod, mmap, munmap, msync, file size; their constants |
+| substrate/posix.lisp | posix.lisp | open, close, lseek, write, file extension, fchmod, mmap, munmap, msync, file size; their constants; `O_WRONLY`, `O_TRUNC`, `MS_ASYNC`, fsync and rename are new (#6) |
 | substrate/utilities.lisp | utilities.lisp | `proper-listp`, `make-byte-vector`, `with-gensyms`, CCL rw-lock shims |
 | substrate/queue.lisp | queue.lisp | whole file |
 | substrate/rw-lock.lisp | rw-lock.lisp | whole file but a block-commented test function; comments restored (#5) |
-| substrate/mmap.lisp | mmap.lisp | mapped files, byte access, uint64 and pointer codecs; not the segment machinery |
+| substrate/mmap.lisp | mmap.lisp | mapped files, byte access, uint64 and pointer codecs; not the segment machinery. `mmap-file` takes `:writable`, and a read-only mapping refuses writes instead of retrying them; a reservation exhausted signals `reservation-exhausted` (#6) |
 | substrate/buffers.lisp | (new) | stand-ins for buffer-pool.lisp's `get-buffer` and `get-skip-node-buffer` |
-| substrate/allocator.lisp | allocator.lisp | all but `test-allocator`; heap growth is logged at debug level, and an error the heap signals is not logged as well (#5) |
+| substrate/allocator.lisp | allocator.lisp | all but `test-allocator`; heap growth is logged at debug level, and an error the heap signals is not logged as well (#5); `open-memory` takes `:writable`, refuses a file shorter than its allocation pointer, and unmaps on any failure (#6) |
 | substrate/heap-bytes.lisp | transactions.lisp | `set-bytes` on `memory` |
 | structures/hash-key.lisp | primitive-node.lisp | the 16-byte `%hash` method, plus an explicit `defgeneric` |
-| structures/linear-hash.lisp | linear-hash.lisp | whole file; `open-lhash` signals when it cannot open, after unmapping what it mapped (vivace-graph's returned a handle whose files were unmapped); the entry points do not log an error before re-signalling it (#5) |
+| structures/linear-hash.lisp | linear-hash.lisp | whole file; `open-lhash` signals when it cannot open, after unmapping what it mapped (vivace-graph's returned a handle whose files were unmapped); the entry points do not log an error before re-signalling it (#5); it takes `:writable` and refuses files shorter than their config says (#6) |
 | structures/cl-store-ecl.lisp | cl-store-ecl.lisp | whole file (ECL only); header restored (#5) |
 | structures/cursors.lisp | cursors.lisp | whole file |
 | structures/skip-list.lisp | skip-list.lisp | all but the development and benchmark functions; one cached node object per address (`%sl-cache-node`), and add and remove re-read each locked predecessor's pointer before validating (two objects for one node livelocked concurrent writers) |

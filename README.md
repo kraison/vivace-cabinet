@@ -26,15 +26,27 @@ signals `invalid-argument` on bytes that are not UTF-8. One handle may
 have a database open for writing, or any number for reading, in this
 process or others; an open that conflicts signals `open-error` (an
 advisory `flock` on the directory, which network filesystems may not
-honour).
+honour). A reader maps the files read-only, so it can open a database
+whose files it may not write.
 
 `open-db` takes `:mode`, a list of `:reader` or `:writer` plus any of
 `:create`, `:truncate`, `:autosync` (default `(:writer :create)`), and
-tuning keywords: `:buckets` and `:max-locks` for the index, `:heap-size`,
-and `:heap-reservation` (default 64 GiB of address space the heap may
-grow into in one session). A writer's `:truncate` empties the database,
-or discards one left incomplete by a crash while creating; opening an
-incomplete database otherwise signals `open-error`.
+tuning keywords. `:buckets` and `:max-locks` for the index and
+`:heap-size` apply when the database is created (or truncated) and are
+ignored at later opens, which read them from the files;
+`:heap-reservation` (default 64 GiB of address space the heap may grow
+into in one session) applies at every open. A writer's `:truncate`
+empties the database, or discards one left incomplete by a crash while
+creating; opening an incomplete database otherwise signals
+`open-error`, as does opening one whose files are shorter than their
+contents say.
+
+`db-synchronize` flushes the files to the operating system and writes
+the header, which holds the record count; with `:hard t` it forces both
+to the device (`msync`, `fsync`), as `close-db` does. `:autosync`
+synchronizes after each write that succeeds. The header is replaced by
+a rename, so a crash leaves the old header or the new one, never a torn
+one.
 
 A TreeDB keeps its records in key order:
 
@@ -56,9 +68,15 @@ compare-and-swap that finds another value) returns NIL, and
 `(db-error db)` says why: `:duplicate-record`, `:no-record`,
 `:no-permission` or `:logic`. Real problems signal `vivace-cabinet-error`
 subclasses: `open-error`, `invalid-argument`, `key-too-long`,
-`not-implemented` and its subclass `transactions-not-implemented`.
-`db-check` returns the value's size; `db-size` returns the bytes in use,
-not file sizes (the index files are sparse).
+`reservation-exhausted`, `not-implemented` and its subclass
+`transactions-not-implemented`. An `open-error` raised by a failure in
+the files keeps that condition under `open-error-cause`, so a caller
+can tell a permission problem from a damaged file.
+`db-check` returns the value's size. `db-size` returns the bytes the
+database has used so far: the heap's extent and, on a HashDB, the
+index's buckets and overflow. It is a high-water mark, as Kyoto's file
+size is: removing records frees their space for reuse without lowering
+it. It is not the files' size (the index files are sparse).
 
 ## Cursors
 
@@ -200,9 +218,10 @@ tracing on.
 ## Limits
 
 - **No crash safety.** Writes go straight to shared memory maps and reach
-  disk on close; a crash mid-write can leave a structure inconsistent. A
-  writer that exits without `close-db` leaves its records, and the next
-  open counts them again by walking the whole index.
+  the device at `close-db` and `db-synchronize :hard t`; a crash
+  mid-write can leave a structure inconsistent. A writer that exits
+  without `close-db` leaves its records, and the next open counts them
+  again by walking the whole index.
 - **Address space.** Each mapped file reserves 8 times its size, at least
   1 GiB, of virtual address space: about 17 GiB per linear hash. A
   HashDB's heap reserves `:heap-reservation` (64 GiB by default), so an
@@ -210,8 +229,8 @@ tracing on.
   count these.
 - **Growth stops at the reservation.** A HashDB's heap cannot grow past
   `:heap-reservation` until it is reopened, and each linear-hash file
-  stops at 8000 MiB; the error names vivace-graph's `GRAPH-DB` package.
-  Using the structures directly, bind
+  stops at 8000 MiB; the write signals `reservation-exhausted` and the
+  database stays usable. Using the structures directly, bind
   `vivace-cabinet::*mmap-reservation-multiplier*` or
   `vivace-cabinet::*mmap-min-reservation*` before creating or opening to
   reserve more.
@@ -231,8 +250,6 @@ tracing on.
 - **Skip-list cursors can miss a key being replaced.** The skip-list
   engine replaces a value by removing and re-adding its record, so a
   cursor passing that key at that moment does not see it.
-- **Readers need write permission.** Files are mapped read-write even
-  for `:reader`, so a reader that may not write them gets `open-error`.
 - **Appending copies the value.** `db-append` writes a new record each
   time, and the heap keeps freed records of the sizes a value passed
   through: a value grown 1000 bytes at a time to 300 KB leaves about

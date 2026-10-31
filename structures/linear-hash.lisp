@@ -327,21 +327,25 @@
             #+ecl (mp:make-lock :recursive t)))
     lhash))
 
-(defun open-lhash (location)
+(defun open-lhash (location &key (writable t))
   "Open the lhash persisted under LOCATION.  The struct restored from
 STRUCT.DAT records the location it was CREATED at; it is reset to LOCATION
 here, because a path inside a persisted structure says where it was made,
-not where it now lives -- and DELETE-LHASH trusts it for a write (GH #143)."
+not where it now lives -- and DELETE-LHASH trusts it for a write (GH #143).
+WRITABLE NIL maps the three files read-only (#6)."
   (let ((lhash (cl-store:restore (merge-pathnames "struct.dat" location))))
     (setf (%lhash-location lhash) location)
     (handler-case
         (progn
           (setf (%lhash-config lhash)
-                (mmap-file (merge-pathnames "config.dat" location) :create-p nil)
+                (mmap-file (merge-pathnames "config.dat" location)
+                           :create-p nil :writable writable)
                 (%lhash-table lhash)
-                (mmap-file (merge-pathnames "table.dat" location) :create-p nil)
+                (mmap-file (merge-pathnames "table.dat" location)
+                           :create-p nil :writable writable)
                 (%lhash-overflow lhash)
-                (mmap-file (merge-pathnames "overflow.dat" location) :create-p nil)
+                (mmap-file (merge-pathnames "overflow.dat" location)
+                           :create-p nil :writable writable)
                 (%lhash-count-lock lhash) (make-rw-lock)
                 (%lhash-split-lock lhash) (make-rw-lock)
                 (%lhash-overflow-lock lhash) (make-rw-lock)
@@ -372,6 +376,7 @@ not where it now lives -- and DELETE-LHASH trusts it for a write (GH #143)."
                 (deserialize-uint64 (%lhash-config lhash) +lhash-bucket-bytes-offset+)
                 (%lhash-null-key lhash)
                 (funcall (%lhash-key-deserializer lhash) (%lhash-config lhash) +lhash-null-key-offset+))
+          (%check-lhash-lengths lhash)
           (dotimes (i (%lhash-max-locks lhash))
             (setf (svref (%lhash-lock-vector lhash) i)
                   #+sbcl (sb-thread:make-mutex)
@@ -386,6 +391,22 @@ not where it now lives -- and DELETE-LHASH trusts it for a write (GH #143)."
             (munmap-file mf)))
         (error c)))
     lhash))
+
+(defun %check-lhash-lengths (lhash)
+  "Signal if any of LHASH's three files is shorter than what its config
+says is in use: a truncated file would read as empty or fault (#6)."
+  (flet ((check (name mf need)
+           (let ((have (mapped-file-length mf)))
+             (when (< have need)
+               (error "~A ~A is ~D bytes long; its contents need ~D"
+                      (%lhash-location lhash) name have need)))))
+    (check "config.dat" (%lhash-config lhash)
+           (+ (* 8 8) (%lhash-key-bytes lhash)))
+    (check "table.dat" (%lhash-table lhash)
+           (1+ (* (%bucket-count lhash) (%lhash-bucket-bytes lhash))))
+    (check "overflow.dat" (%lhash-overflow lhash)
+           (+ (%lhash-next-overflow-pointer lhash)
+              (%lhash-bucket-bytes lhash)))))
 
 (defun close-lhash (lhash)
   (munmap-file (%lhash-config lhash) :save-p t)

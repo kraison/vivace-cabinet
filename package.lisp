@@ -15,7 +15,8 @@
          #:compute-effective-method #:method-function
          #:make-method-lambda)
   (:export #:vivace-cabinet-error #:not-implemented #:invalid-argument
-           #:open-error #:open-db #:close-db #:with-db
+           #:open-error #:open-error-cause #:reservation-exhausted
+           #:open-db #:close-db #:with-db
            #:db-set #:db-add #:db-replace #:db-append #:db-get #:db-check
            #:db-seize #:db-remove #:db-count #:db-size #:db-path
            #:db-clear #:db-synchronize #:db-error

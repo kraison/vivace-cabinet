@@ -33,7 +33,10 @@
   ;; holds an rw-lock over every one of its readers.  It is the FALLBACK for
   ;; when the adjacent range above cannot be claimed.  Read its docstring
   ;; before calling it from anywhere else; the short version is: don't.
-  (reserved-size 0 :type integer))
+  (reserved-size 0 :type integer)
+  ;; NIL when the file was opened and mapped read-only (#6): a reader's
+  ;; mapping, which no code path may write.
+  (writable t))
 
 ;;; Diagnostic: count SEGV-retries in the accessor :around methods.  With the
 ;;; stable-address mapping no remap moves the pointer, so this must stay 0 under
@@ -46,11 +49,18 @@
 (defmethod mapped-file-length ((mapped-file mapped-file))
   (%posix-file-size-fd (m-fd mapped-file)))
 
+(defun %check-mapping-writable (mf)
+  "Signal if MF is a read-only mapping: a write to one faults, and a
+retry would fault again (#6)."
+  (when (and (mapped-file-p mf) (not (m-writable mf)))
+    (error "write to the read-only mapping of ~A" (m-path mf))))
+
 (defmethod set-byte :around (mf offset byte)
   (handler-case
       (call-next-method)
     #+sbcl
     (sb-kernel::memory-fault-error (c)
+      (%check-mapping-writable mf)
       (incf *mmap-segv-retries*)
       (log:error "SEGV: GOT ~A in ~A; retrying." c mf)
       (set-byte mf offset byte))
@@ -114,6 +124,7 @@
       (call-next-method)
     #+sbcl
     (sb-kernel::memory-fault-error (c)
+      (%check-mapping-writable mf)
       (incf *mmap-segv-retries*)
       (log:error "SEGV: GOT ~A in ~A; retrying." c mf)
       (set-bytes mf vec offset length))
@@ -137,8 +148,13 @@
 (defmethod size-of ((mmap mapped-file))
   (%file-size (m-path mmap)))
 
-(defun mmap-file (file &key (create-p t) (size (* 4096 25600)) reservation)
+(defun mmap-file (file &key (create-p t) (size (* 4096 25600)) reservation
+                         (writable t))
   "Use mmap() to map FILE into memory.
+
+WRITABLE NIL opens and maps an existing file read-only (PROT_READ), so a
+file the process may not write still opens; CREATE-P implies WRITABLE.
+Writing to such a mapping signals an error instead of retrying (#6).
 
 Reserves a virtual-address window (PROT_NONE, anonymous, MAP_NORESERVE — address
 space only) and maps the file into the head of it with MAP_FIXED.  The returned
@@ -161,9 +177,9 @@ and POINTER is stable for the life of the mapping."
     (error "mmap-file: ~A does not exist and create-p is not true." file))
   (let ((fd (%posix-open
              file
-             (if create-p
-                 (logior +o-creat+ +o-rdwr+)
-                 +o-rdwr+)))
+             (cond (create-p (logior +o-creat+ +o-rdwr+))
+                   (writable +o-rdwr+)
+                   (t +o-rdonly+))))
         (base nil)
         (reserved nil)
         (ok nil))
@@ -204,7 +220,9 @@ and POINTER is stable for the life of the mapping."
           (let* ((pointer (%posix-mmap
                            base
                            size
-                           (logior +prot-read+ +prot-write+)
+                           (if (or create-p writable)
+                               (logior +prot-read+ +prot-write+)
+                               +prot-read+)
                            (logior +map-shared+ +map-fixed+)
                            fd
                            0))
@@ -212,7 +230,9 @@ and POINTER is stable for the life of the mapping."
                  (mf (make-mapped-file :path path
                                        :fd fd
                                        :pointer pointer
-                                       :reserved-size reserved)))
+                                       :reserved-size reserved
+                                       :writable (and (or create-p writable)
+                                                      t))))
             (setf ok t)
             mf))
       (unless ok
@@ -227,7 +247,7 @@ and POINTER is stable for the life of the mapping."
 
 (defmethod munmap-file ((mapped-file mapped-file) &key (save-p nil)
                         (sync +ms-sync+))
-  (when save-p
+  (when (and save-p (m-writable mapped-file))
     ;;(log:debug "Calling msync on ~S" mapped-file)
     ;; Only the file-backed head is dirty/syncable, not the reserved tail.
     (%posix-msync (m-pointer mapped-file)
@@ -251,21 +271,15 @@ and POINTER is stable for the life of the mapping."
 ;; docs/mmap-remap-race-plan.md.
 (defmethod extend-mapped-file ((mapped-file mapped-file) (length integer))
   (log:debug "EXTENDING MMAP ~A" mapped-file)
+  (%check-mapping-writable mapped-file)
   (let* ((old-len (mapped-file-length mapped-file))
          (new-len (+ old-len length)))
+    ;; The reservation is fixed at open from the file's size then (#6).
     (when (> new-len (m-reserved-size mapped-file))
-      (error "mmap reservation exhausted for ~A: need ~D bytes, reserved ~D.~%~
-The reservation is computed at open from the file's size then, so reopening the ~
-graph recomputes it against the now-larger file and grants fresh headroom.  To ~
-raise it up front, bind GRAPH-DB::*MMAP-RESERVATION-MULTIPLIER* or ~
-GRAPH-DB::*MMAP-MIN-RESERVATION* (or MAKE-GRAPH's heap/index size) before ~
-opening the graph.  Exception: a VECTOR SEGMENT never reaches this error at ~
-all -- its floor is GRAPH-DB:*SEGMENT-MIN-RESERVATION*, and %SEG-GROW ~
-re-reserves and relocates its mapping (under the segment's write lock) before ~
-calling this, so for segments the reservation is not a ceiling.  Only if that ~
-relocation is disabled or fails does a segment signal, and it signals ~
-VECTOR-SEGMENT-CAPACITY-EXHAUSTED, not this."
-             (m-path mapped-file) new-len (m-reserved-size mapped-file)))
+      (%signal 'reservation-exhausted
+               "~A cannot grow to ~D bytes: ~D were reserved at open. ~
+Reopening the database reserves more; see the README's Limits."
+               (m-path mapped-file) new-len (m-reserved-size mapped-file)))
     ;; Extend the backing file first so the newly mapped pages have storage.
     (%posix-extend-file-backing (m-fd mapped-file) new-len)
     ;; Re-map [0, new-len) over the reserved window at the same base.

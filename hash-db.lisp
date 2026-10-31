@@ -50,14 +50,17 @@ collisions; a database must keep one digest function for life.")
             (hash-db-record-count db) 0))))
 
 (defmethod %open-storage ((db hash-db) header)
-  "Open the heap and the index, recounting the records if a writer left
-them open."
+  "Open the heap and the index, read-only for a reader, recounting the
+records if a writer left them open."
   (destructuring-bind (&key heap-reservation &allow-other-keys)
       (%db-tuning db)
-    (let ((dir (%db-dir db)))
+    (let ((dir (%db-dir db))
+          (writable (%db-writable-p db)))
       (setf (%db-heap db) (let ((*mmap-min-reservation* heap-reservation))
-                            (open-memory (namestring (%heap-file dir))))
-            (hash-db-index db) (open-lhash (%index-dir dir))
+                            (open-memory (namestring (%heap-file dir))
+                                         :writable writable))
+            (hash-db-index db) (open-lhash (%index-dir dir)
+                                           :writable writable)
             (hash-db-record-count db) (if (getf header :open)
                                           (%count-records db)
                                           (getf header :count))))))
@@ -70,12 +73,13 @@ them open."
     (close-memory (%db-heap db))
     (setf (%db-heap db) nil)))
 
-(defmethod %sync-storage ((db hash-db))
-  (let ((index (hash-db-index db)))
-    (sync-region (memory-mmap (%db-heap db)))
+(defmethod %sync-storage ((db hash-db) hard)
+  (let ((index (hash-db-index db))
+        (sync (if hard +ms-sync+ +ms-async+)))
+    (sync-region (memory-mmap (%db-heap db)) :sync sync)
     (dolist (mf (list (%lhash-config index) (%lhash-table index)
                       (%lhash-overflow index)))
-      (sync-region mf))))
+      (sync-region mf :sync sync))))
 
 (defun open-hash-db (dir &key (mode '(:writer :create)) (buckets 4)
                            (max-locks *max-locks*)
@@ -83,9 +87,14 @@ them open."
                            (heap-reservation (* 64 1024 1024 1024)))
   "Open the HashDB in DIR.  MODE holds :READER or :WRITER, and any of
 :CREATE, :TRUNCATE, :AUTOSYNC.  BUCKETS and MAX-LOCKS tune the linear
-hash; HEAP-SIZE is the heap's first size; HEAP-RESERVATION is the address
-space the heap may grow into before it must be reopened."
+hash and HEAP-SIZE is the heap's first size: all three apply only when
+the database is created (#6).  HEAP-RESERVATION, the address space the
+heap may grow into before it must be reopened, applies at every open."
   (%check-mode mode)
+  (%check-count :buckets buckets 1)
+  (%check-count :max-locks max-locks 1)
+  (%check-count :heap-size heap-size 0)
+  (%check-count :heap-reservation heap-reservation 0)
   (%open-database
    (make-instance 'hash-db :dir dir
                            :writable (and (member :writer mode) t)
@@ -230,8 +239,10 @@ chain (NIL at the head); NIL if KEY is absent."
               (%fail db :no-record)))))))
 
 (defmethod %size ((db hash-db))
-  "Bytes in use: the heap's extent and the index's buckets and overflow.
-File sizes would overstate: the index files are sparse."
+  "Bytes used so far: the heap's extent and the index's buckets and
+overflow.  A high-water mark: removing records frees space for reuse
+without lowering it (#6).  File sizes would overstate: the index files
+are sparse."
   (let ((index (hash-db-index db)))
     (+ (read-memory-pointer (%db-heap db))
        (* (bucket-count index) (%lhash-bucket-bytes index))

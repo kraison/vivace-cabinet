@@ -55,14 +55,16 @@
 (defgeneric %close-storage (db)
   (:documentation "Close whatever of DB's storage is open."))
 
-(defgeneric %sync-storage (db)
-  (:documentation "Flush DB's mapped files to disk."))
+(defgeneric %sync-storage (db hard)
+  (:documentation "Flush DB's mapped files: to the device when HARD,
+else to the operating system."))
 
 ;;; Files and the header
 
 (defun %heap-file (dir) (merge-pathnames "heap.dat" dir))
 (defun %index-dir (dir) (merge-pathnames "index/" dir))
 (defun %header-file (dir) (merge-pathnames "header.dat" dir))
+(defun %header-temp-file (dir) (merge-pathnames "header.tmp" dir))
 
 (defun %put-u64 (octets offset n)
   (dotimes (i 8)
@@ -73,9 +75,33 @@
     (dotimes (i 8 n)
       (setf n (logior n (ash (aref octets (+ offset i)) (* 8 i)))))))
 
-(defun %write-header (db &key open)
+(defun %replace-file (path octets hard)
+  "Write OCTETS to PATH through PATH.tmp and rename(2), so PATH holds its
+old or its new contents and never less (#6).  HARD fsyncs the file
+before the rename and the directory after it."
+  (let* ((tmp (namestring (make-pathname :type "tmp" :defaults path)))
+         ;; #o666 less the umask, as any file: #o640 would drop the
+         ;; group write a second writer account needs (#6).
+         (fd (%posix-open tmp (logior +o-wronly+ +o-creat+ +o-trunc+)
+                          #o666)))
+    (unwind-protect
+         (cffi:with-pointer-to-vector-data (p octets)
+           (unless (= (length octets) (%posix-write fd p (length octets)))
+             (error "short write to ~a" tmp))
+           (when hard
+             (%posix-fsync fd)))
+      (%posix-close fd))
+    (%posix-rename tmp (namestring path))
+    (when hard
+      (let ((dir (%posix-open (uiop:pathname-directory-pathname path)
+                              +o-rdonly+)))
+        (unwind-protect (%posix-fsync dir)
+          (%posix-close dir))))))
+
+(defun %write-header (db &key open hard)
   "Write DB's header: magic VCAB, format 1, type, OPEN (1 while a writer
-has the database open), engine, record count, structure address."
+has the database open), engine, record count, structure address.  It
+replaces header.dat whole; HARD makes it durable."
   (let ((h (make-array +header-bytes+ :element-type '(unsigned-byte 8)
                                       :initial-element 0)))
     (replace h +header-magic+)
@@ -85,10 +111,7 @@ has the database open), engine, record count, structure address."
           (aref h 7) (%engine-code db))
     (%put-u64 h 8 (%record-count db))
     (%put-u64 h 16 (%header-address db))
-    (with-open-file (out (%header-file (%db-dir db))
-                         :direction :output :if-exists :supersede
-                         :element-type '(unsigned-byte 8))
-      (write-sequence h out))))
+    (%replace-file (%header-file (%db-dir db)) h hard)))
 
 (defun %read-header (dir)
   "DIR's header as a plist: :TYPE (:HASH or :TREE), :OPEN, :ENGINE, :COUNT
@@ -113,7 +136,8 @@ and :ADDRESS.  Signals OPEN-ERROR for anything else."
       (probe-file (%index-dir dir))))
 
 (defun %delete-storage (dir)
-  (dolist (f (list (%header-file dir) (%heap-file dir)))
+  (dolist (f (list (%header-file dir) (%header-temp-file dir)
+                   (%heap-file dir)))
     (when (probe-file f)
       (delete-file f)))
   (uiop:delete-directory-tree (%index-dir dir) :validate t
@@ -132,15 +156,28 @@ of :READER and :WRITER."
     (%signal 'invalid-argument
              "MODE needs exactly one of :READER and :WRITER: ~s" mode)))
 
+(defun %check-count (name value least)
+  "Signal INVALID-ARGUMENT unless VALUE, the tuning keyword NAME's, is an
+integer of at least LEAST."
+  (unless (and (integerp value) (>= value least))
+    (%signal 'invalid-argument "~s must be an integer of at least ~d: ~s"
+             name least value)))
+
+(defun %open-failure (dir cause)
+  "Signal OPEN-ERROR for DIR, keeping CAUSE, the condition that stopped
+the open, under OPEN-ERROR-CAUSE (#6)."
+  (error 'open-error :message (format nil "~a: ~a" dir cause)
+                     :cause cause))
+
 (defun %guard-storage (db thunk)
   "Call THUNK, which creates or opens DB's storage; if it fails, close
-what it opened and signal OPEN-ERROR."
+what it opened and signal OPEN-ERROR with the failure as its cause."
   (handler-case (funcall thunk)
     (error (c)
       (ignore-errors (%close-storage db))
       (if (typep c 'open-error)
           (error c)
-          (%signal 'open-error "~a: ~a" (%db-dir db) c)))))
+          (%open-failure (%db-dir db) c)))))
 
 (defun %open-existing (db)
   (let ((header (%read-header (%db-dir db))))
@@ -159,13 +196,17 @@ what it opened and signal OPEN-ERROR."
 says.  Returns DB."
   (let ((dir (%db-dir db))
         (writer (%db-writable-p db)))
-    (unless (probe-file dir)
-      (unless (and writer (member :create mode))
-        (%signal 'open-error
-                 "~a: no database here (open with :CREATE)" dir))
-      (ensure-directories-exist dir))
+    (cond ((uiop:directory-exists-p dir))
+          ((probe-file dir)
+           (%signal 'open-error "~a: not a directory" dir))
+          ((and writer (member :create mode))
+           (ensure-directories-exist dir))
+          (t (%signal 'open-error
+                      "~a: no database here (open with :CREATE)" dir)))
     (setf (%db-lock-fd db)
-          (or (lock-directory dir writer)
+          (or (handler-case (lock-directory dir writer)
+                (error (c)
+                  (%open-failure dir c)))
               (%signal 'open-error "~a: open in another handle" dir)))
     (let ((ok nil))
       (unwind-protect
@@ -197,7 +238,11 @@ says.  Returns DB."
   (with-write-lock ((%db-lock db))
     (prog1 (when (%db-open-p db)
              (when (%db-writable-p db)
-               (%write-header db))
+               ;; Storage first, as DB-SYNCHRONIZE :HARD orders it: a
+               ;; clean header must never be durable over stale data,
+               ;; or the next open would skip its recount (#6).
+               (%sync-storage db t)
+               (%write-header db :hard t))
              (%close-storage db)
              (setf (%db-open-p db) nil)
              t)
@@ -235,14 +280,25 @@ or :WRITE)."
   (with-lock-held ((%db-errors-lock db))
     (values (gethash (current-thread) (%db-errors db) :success))))
 
+(defun %autosync (db)
+  "Synchronize DB after a write under :AUTOSYNC, unless another thread
+has closed it meanwhile: CLOSE-DB synchronized it then (#6)."
+  (with-write-lock ((%db-lock db))
+    (when (%db-open-p db)
+      (%sync-storage db nil)
+      (%write-header db :open t))))
+
 (defmacro %writing ((db) &body body)
-  "Run BODY if DB is writable, then synchronize under :AUTOSYNC;
-otherwise fail with :NO-PERMISSION."
-  `(if (%db-writable-p ,db)
-       (multiple-value-prog1 (progn ,@body)
-         (when (%db-autosync-p ,db)
-           (db-synchronize ,db)))
-       (%fail ,db :no-permission)))
+  "Run BODY if DB is writable and, when its first value is not NIL (a
+logical failure returns NIL), synchronize under :AUTOSYNC; otherwise
+fail with :NO-PERMISSION."
+  (let ((values (gensym "VALUES")))
+    `(if (%db-writable-p ,db)
+         (let ((,values (multiple-value-list (progn ,@body))))
+           (when (and (first ,values) (%db-autosync-p ,db))
+             (%autosync ,db))
+           (values-list ,values))
+         (%fail ,db :no-permission))))
 
 ;;; Whole-database operations
 
@@ -255,12 +311,13 @@ otherwise fail with :NO-PERMISSION."
     (%record-count db)))
 
 (defmethod db-synchronize ((db database) &key hard)
-  (declare (ignore hard))
+  "Flush DB's files to the operating system and write its header; with
+HARD, force both to the device (#6).  T."
   (with-write-lock ((%db-lock db))
     (%check-open db)
     (when (%db-writable-p db)
-      (%sync-storage db)
-      (%write-header db :open t))
+      (%sync-storage db hard)
+      (%write-header db :open t :hard hard))
     t))
 
 (defmethod db-clear ((db database))
