@@ -160,15 +160,21 @@ integer of at least LEAST."
     (%signal 'invalid-argument "~s must be an integer of at least ~d: ~s"
              name least value)))
 
+(defun %open-failure (dir cause)
+  "Signal OPEN-ERROR for DIR, keeping CAUSE, the condition that stopped
+the open, under OPEN-ERROR-CAUSE (#6)."
+  (error 'open-error :message (format nil "~a: ~a" dir cause)
+                     :cause cause))
+
 (defun %guard-storage (db thunk)
   "Call THUNK, which creates or opens DB's storage; if it fails, close
-what it opened and signal OPEN-ERROR."
+what it opened and signal OPEN-ERROR with the failure as its cause."
   (handler-case (funcall thunk)
     (error (c)
       (ignore-errors (%close-storage db))
       (if (typep c 'open-error)
           (error c)
-          (%signal 'open-error "~a: ~a" (%db-dir db) c)))))
+          (%open-failure (%db-dir db) c)))))
 
 (defun %open-existing (db)
   (let ((header (%read-header (%db-dir db))))
@@ -197,7 +203,7 @@ says.  Returns DB."
     (setf (%db-lock-fd db)
           (or (handler-case (lock-directory dir writer)
                 (error (c)
-                  (%signal 'open-error "~a: ~a" dir c)))
+                  (%open-failure dir c)))
               (%signal 'open-error "~a: open in another handle" dir)))
     (let ((ok nil))
       (unwind-protect

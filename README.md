@@ -69,7 +69,9 @@ compare-and-swap that finds another value) returns NIL, and
 `:no-permission` or `:logic`. Real problems signal `vivace-cabinet-error`
 subclasses: `open-error`, `invalid-argument`, `key-too-long`,
 `reservation-exhausted`, `not-implemented` and its subclass
-`transactions-not-implemented`.
+`transactions-not-implemented`. An `open-error` raised by a failure in
+the files keeps that condition under `open-error-cause`, so a caller
+can tell a permission problem from a damaged file.
 `db-check` returns the value's size. `db-size` returns the bytes the
 database has used so far: the heap's extent and, on a HashDB, the
 index's buckets and overflow. It is a high-water mark, as Kyoto's file

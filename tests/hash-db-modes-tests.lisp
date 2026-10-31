@@ -331,3 +331,23 @@ synchronize does not signal (#6)."
       (close-db db)
       (finishes (%autosync db))
       (is (null (getf (%read-header path) :open))))))
+
+(test open-error-keeps-its-cause
+  "An OPEN-ERROR from a failure in the files carries that condition as
+its cause; one from this library's own refusal has none (#6)."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "oc.vch/" dir)))
+      (handler-case (progn (open-db path :mode '(:reader))
+                           (fail "opened a missing database"))
+        (open-error (e)
+          (is (null (open-error-cause e)))))
+      (with-db (db path) (db-set db "k" "v"))
+      (with-open-file (s (merge-pathnames "index/table.dat" path)
+                         :direction :output :if-exists :overwrite
+                         :element-type '(unsigned-byte 8))
+        (write-byte 0 s))
+      (handler-case (progn (open-db path)
+                           (fail "opened a damaged database"))
+        (open-error (e)
+          (is (typep (open-error-cause e) 'error))
+          (is (search "magic" (princ-to-string (open-error-cause e)))))))))
