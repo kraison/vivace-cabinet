@@ -63,7 +63,9 @@ takes `:engine` (`:bplus-tree`, the default, or `:skip-list`),
 `:comparator` (a strict less-than on octet vectors; the default,
 `octets<`, is unsigned byte order) and the heap keywords. A keyword for
 the other type (`:buckets` on a TreeDB, `:comparator` on a HashDB), or
-one `open-db` does not know, signals `invalid-argument`.
+one `open-db` does not know, signals `invalid-argument`. `:page-size`,
+like the other creation-time tuning, is ignored when an existing
+database opens.
 
 As in Kyoto Cabinet, an operation that fails for an ordinary reason (adding
 a key that exists, removing one that doesn't, writing to a reader, a
@@ -230,13 +232,14 @@ tracing on.
   again by walking the whole index.
 - **Address space.** Each mapped file reserves 8 times its size, at least
   1 GiB, of virtual address space: about 17 GiB per linear hash. A
-  HashDB's heap reserves `:heap-reservation` (64 GiB by default), so an
-  open HashDB holds about 81 GiB. Limits on address space (`ulimit -v`)
-  count these.
-- **Growth stops at the reservation.** A HashDB's heap cannot grow past
-  `:heap-reservation` until it is reopened, and each linear-hash file
-  stops at 8000 MiB; the write signals `reservation-exhausted` and the
-  database stays usable. Using the structures directly, bind
+  database's heap reserves `:heap-reservation` (64 GiB by default), so
+  an open HashDB holds about 81 GiB and an open TreeDB 64 GiB. Limits on
+  address space (`ulimit -v`) count these.
+- **Growth stops at the reservation.** A database's heap cannot grow
+  past `:heap-reservation` until it is reopened, and each of a HashDB's
+  linear-hash files stops at 8000 MiB; the write signals
+  `reservation-exhausted` and the database stays usable. Using the
+  structures directly, bind
   `vivace-cabinet::*mmap-reservation-multiplier*` or
   `vivace-cabinet::*mmap-min-reservation*` before creating or opening to
   reserve more.
@@ -258,7 +261,7 @@ tracing on.
   of them can collide.
 - **The skip list frees removed records at close.** On the skip-list
   engine, removing or replacing a record unlinks it at once but frees
-  its space only at `close-db`.
+  its space only at `close-db`, or at `db-clear`, which empties the heap.
 - **Skip-list cursors can miss a key being replaced.** The skip-list
   engine replaces a value by removing and re-adding its record, so a
   cursor passing that key at that moment does not see it.
