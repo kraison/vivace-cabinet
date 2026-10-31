@@ -17,7 +17,10 @@ snapshots. Unit 3 benchmarks them against Kyoto Cabinet.
       (vivace-cabinet:db-get db "apple" :as :string))   ; => "red"
 
 A database is a directory (a trailing `/` is added): `header.dat`,
-`heap.dat`, and the index in `index/`. Keys and values are octet vectors;
+`heap.dat`, and the index in `index/`. A HashDB's index is two sparse
+files of 1000 MiB each, `table.dat` and `overflow.dat`, which take disk
+only as they fill; `db-copy` keeps them sparse. Keys and values are
+octet vectors;
 strings are stored as UTF-8 and read back with `:as :string`, which
 signals `invalid-argument` on bytes that are not UTF-8. One handle may
 have a database open for writing, or any number for reading, in this
@@ -215,6 +218,11 @@ tracing on.
 - **B+ tree keys.** A key longer than a quarter page (1024 bytes at the
   default page size) signals `key-too-long`. A value goes in a heap
   record outside the page when it and its key exceed a quarter page.
+- **The structures take their codecs as keywords.** `make-skip-list` and
+  `make-bplus-tree` take `:key-serializer`, `:key-deserializer`,
+  `:value-serializer` and `:value-deserializer`; one omitted is NIL or
+  vivace-graph's `serialize`, which is not copied, so the first
+  operation fails with an undefined function. The engines pass theirs.
 - **Comparators are not stored.** Open a TreeDB with the same
   `:comparator` every time; another order misplaces records silently.
 - **The skip list frees removed records at close.** On the skip-list

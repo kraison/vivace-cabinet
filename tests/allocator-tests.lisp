@@ -56,7 +56,7 @@ and never collide."
           (payload #(255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255)))
       (dotimes (i (length payload))
         (set-byte mem (+ p i) (aref payload i)))
-      (vivace-cabinet::serialize-header (memory-mmap mem) (- p 8) 32 :active-p t)
+      (serialize-header (memory-mmap mem) (- p 8) 32 :active-p t)
       (is (equalp payload (get-bytes mem p (length payload)))))))
 
 (test free-then-reallocate-reuses-block

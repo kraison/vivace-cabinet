@@ -113,9 +113,10 @@ root; the tree stays correct and usable throughout."
            (heap (create-memory path (* 1024 1024 64)))
            (tree (make-integer-bplus-tree heap))
            (address (%bpt-address tree)))
-      (dotimes (k 3000)
-        (add-to-skip-list tree k (format nil "v~a" k)))
-      (close-memory heap)
+      (unwind-protect
+           (dotimes (k 3000)
+             (add-to-skip-list tree k (format nil "v~a" k)))
+        (close-memory heap))
       (let* ((heap2 (open-memory path))
              (tree2 (apply #'open-bplus-tree :address address :heap heap2
                            (integer-bplus-tree-args))))
