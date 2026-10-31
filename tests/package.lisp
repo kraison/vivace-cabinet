@@ -5,14 +5,32 @@
 
 ;; The copied tests name library internals unqualified, as vivace-graph's
 ;; test package imported them: import every VIVACE-CABINET symbol that
-;; does not clash with CL or FiveAM.
+;; names a definition and does not clash with CL or FiveAM.  Loading
+;; the library from source interns symbols no definition is on (lexical
+;; variables, for one) that its FASLs do not, and a test helper named
+;; like one of those would be defined on it, so they are left out and
+;; the import set is the same either way (#5).
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (let ((test (find-package '#:vivace-cabinet-test))
-        (lib (find-package '#:vivace-cabinet)))
-    (do-symbols (s lib)
-      (when (and (eq (symbol-package s) lib)
-                 (not (find-symbol (symbol-name s) test)))
-        (import s test)))))
+  (defun defined-p (symbol)
+    "Does SYMBOL name a function, macro, variable, class or type?"
+    (or (fboundp symbol)
+        (boundp symbol)
+        (find-class symbol nil)
+        #+sbcl (sb-ext:valid-type-specifier-p symbol)))
+
+  (defun importable-symbols ()
+    "The library symbols to import: those naming a definition whose
+name is not yet accessible here."
+    (let ((test (find-package '#:vivace-cabinet-test))
+          (lib (find-package '#:vivace-cabinet))
+          (result '()))
+      (do-symbols (s lib result)
+        (when (and (eq (symbol-package s) lib)
+                   (defined-p s)
+                   (not (find-symbol (symbol-name s) test)))
+          (push s result)))))
+
+  (import (importable-symbols) '#:vivace-cabinet-test))
 
 ;; So a test helper named like a library internal cannot silently
 ;; redefine it, the definitions are noted now and checked once every

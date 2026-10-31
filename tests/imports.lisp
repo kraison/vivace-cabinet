@@ -22,3 +22,17 @@ not the one in its snapshot, and passes once it is back."
            (signals error (check-imports snapshot)))
       (setf (fdefinition symbol) old))
     (finishes (check-imports snapshot))))
+
+(test only-defined-library-symbols-are-imported
+  "A library symbol with no definition on it, such as one a source load
+interns for a lexical variable, is not imported: a test helper of that
+name would otherwise be defined on it (#5)."
+  (let ((stray (intern "NO-DEFINITION-HERE" '#:vivace-cabinet)))
+    (unwind-protect
+         (progn
+           (is (not (member stray (importable-symbols))))
+           (is (defined-p 'proper-listp))
+           (is (defined-p '*cache-enabled*))
+           (is (defined-p 'bplus-tree))
+           (is (defined-p 'uint64)))
+      (unintern stray '#:vivace-cabinet))))
