@@ -55,14 +55,16 @@
 (defgeneric %close-storage (db)
   (:documentation "Close whatever of DB's storage is open."))
 
-(defgeneric %sync-storage (db)
-  (:documentation "Flush DB's mapped files to disk."))
+(defgeneric %sync-storage (db hard)
+  (:documentation "Flush DB's mapped files: to the device when HARD,
+else to the operating system."))
 
 ;;; Files and the header
 
 (defun %heap-file (dir) (merge-pathnames "heap.dat" dir))
 (defun %index-dir (dir) (merge-pathnames "index/" dir))
 (defun %header-file (dir) (merge-pathnames "header.dat" dir))
+(defun %header-temp-file (dir) (merge-pathnames "header.tmp" dir))
 
 (defun %put-u64 (octets offset n)
   (dotimes (i 8)
@@ -73,9 +75,30 @@
     (dotimes (i 8 n)
       (setf n (logior n (ash (aref octets (+ offset i)) (* 8 i)))))))
 
-(defun %write-header (db &key open)
+(defun %replace-file (path octets hard)
+  "Write OCTETS to PATH through PATH.tmp and rename(2), so PATH holds its
+old or its new contents and never less (#6).  HARD fsyncs the file
+before the rename and the directory after it."
+  (let* ((tmp (namestring (make-pathname :type "tmp" :defaults path)))
+         (fd (%posix-open tmp (logior +o-wronly+ +o-creat+ +o-trunc+))))
+    (unwind-protect
+         (cffi:with-pointer-to-vector-data (p octets)
+           (unless (= (length octets) (%posix-write fd p (length octets)))
+             (error "short write to ~a" tmp))
+           (when hard
+             (%posix-fsync fd)))
+      (%posix-close fd))
+    (%posix-rename tmp (namestring path))
+    (when hard
+      (let ((dir (%posix-open (uiop:pathname-directory-pathname path)
+                              +o-rdonly+)))
+        (unwind-protect (%posix-fsync dir)
+          (%posix-close dir))))))
+
+(defun %write-header (db &key open hard)
   "Write DB's header: magic VCAB, format 1, type, OPEN (1 while a writer
-has the database open), engine, record count, structure address."
+has the database open), engine, record count, structure address.  It
+replaces header.dat whole; HARD makes it durable."
   (let ((h (make-array +header-bytes+ :element-type '(unsigned-byte 8)
                                       :initial-element 0)))
     (replace h +header-magic+)
@@ -85,10 +108,7 @@ has the database open), engine, record count, structure address."
           (aref h 7) (%engine-code db))
     (%put-u64 h 8 (%record-count db))
     (%put-u64 h 16 (%header-address db))
-    (with-open-file (out (%header-file (%db-dir db))
-                         :direction :output :if-exists :supersede
-                         :element-type '(unsigned-byte 8))
-      (write-sequence h out))))
+    (%replace-file (%header-file (%db-dir db)) h hard)))
 
 (defun %read-header (dir)
   "DIR's header as a plist: :TYPE (:HASH or :TREE), :OPEN, :ENGINE, :COUNT
@@ -113,7 +133,8 @@ and :ADDRESS.  Signals OPEN-ERROR for anything else."
       (probe-file (%index-dir dir))))
 
 (defun %delete-storage (dir)
-  (dolist (f (list (%header-file dir) (%heap-file dir)))
+  (dolist (f (list (%header-file dir) (%header-temp-file dir)
+                   (%heap-file dir)))
     (when (probe-file f)
       (delete-file f)))
   (uiop:delete-directory-tree (%index-dir dir) :validate t
@@ -197,7 +218,7 @@ says.  Returns DB."
   (with-write-lock ((%db-lock db))
     (prog1 (when (%db-open-p db)
              (when (%db-writable-p db)
-               (%write-header db))
+               (%write-header db :hard t))
              (%close-storage db)
              (setf (%db-open-p db) nil)
              t)
@@ -255,12 +276,13 @@ otherwise fail with :NO-PERMISSION."
     (%record-count db)))
 
 (defmethod db-synchronize ((db database) &key hard)
-  (declare (ignore hard))
+  "Flush DB's files to the operating system and write its header; with
+HARD, force both to the device (#6).  T."
   (with-write-lock ((%db-lock db))
     (%check-open db)
     (when (%db-writable-p db)
-      (%sync-storage db)
-      (%write-header db :open t))
+      (%sync-storage db hard)
+      (%write-header db :open t :hard hard))
     t))
 
 (defmethod db-clear ((db database))

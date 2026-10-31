@@ -73,12 +73,13 @@ records if a writer left them open."
     (close-memory (%db-heap db))
     (setf (%db-heap db) nil)))
 
-(defmethod %sync-storage ((db hash-db))
-  (let ((index (hash-db-index db)))
-    (sync-region (memory-mmap (%db-heap db)))
+(defmethod %sync-storage ((db hash-db) hard)
+  (let ((index (hash-db-index db))
+        (sync (if hard +ms-sync+ +ms-async+)))
+    (sync-region (memory-mmap (%db-heap db)) :sync sync)
     (dolist (mf (list (%lhash-config index) (%lhash-table index)
                       (%lhash-overflow index)))
-      (sync-region mf))))
+      (sync-region mf :sync sync))))
 
 (defun open-hash-db (dir &key (mode '(:writer :create)) (buckets 4)
                            (max-locks *max-locks*)

@@ -38,6 +38,12 @@ or discards one left incomplete by a crash while creating; opening an
 incomplete database otherwise signals `open-error`, as does opening one
 whose files are shorter than their contents say.
 
+`db-synchronize` flushes the files to the operating system and writes
+the header, which holds the record count; with `:hard t` it forces both
+to the device (`msync`, `fsync`), as `close-db` does. `:autosync`
+synchronizes after each write. The header is replaced by a rename, so a
+crash leaves the old header or the new one, never a torn one.
+
 A TreeDB keeps its records in key order:
 
     (vivace-cabinet:with-db (db "/var/data/words.vct" :type :tree)
@@ -202,9 +208,10 @@ tracing on.
 ## Limits
 
 - **No crash safety.** Writes go straight to shared memory maps and reach
-  disk on close; a crash mid-write can leave a structure inconsistent. A
-  writer that exits without `close-db` leaves its records, and the next
-  open counts them again by walking the whole index.
+  the device at `close-db` and `db-synchronize :hard t`; a crash
+  mid-write can leave a structure inconsistent. A writer that exits
+  without `close-db` leaves its records, and the next open counts them
+  again by walking the whole index.
 - **Address space.** Each mapped file reserves 8 times its size, at least
   1 GiB, of virtual address space: about 17 GiB per linear hash. A
   HashDB's heap reserves `:heap-reservation` (64 GiB by default), so an

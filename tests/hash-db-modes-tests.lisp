@@ -259,3 +259,23 @@ open rather than a memory fault at the first lookup past its end (#6)."
       (truncate-file (merge-pathnames "heap.dat" path) 100000)
       (signals open-error (open-test-db path))
       (signals open-error (open-test-db path :mode '(:reader))))))
+
+(test header-is-replaced-whole
+  "The header goes to header.tmp and is renamed over header.dat (#6), so
+a reader of the old file sees all of it, never a truncated one; :HARD
+makes the replacement durable."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "hr.vch/" dir)))
+      (with-db (db path)
+        (db-set db "a" "1")
+        (db-synchronize db)
+        (with-open-file (old (merge-pathnames "header.dat" path)
+                             :element-type '(unsigned-byte 8))
+          (db-set db "b" "2")
+          (is-true (db-synchronize db :hard t))
+          (is (null (probe-file (merge-pathnames "header.tmp" path))))
+          (let ((h (make-array +header-bytes+
+                               :element-type '(unsigned-byte 8))))
+            (is (= +header-bytes+ (read-sequence h old)))
+            (is (= 1 (%get-u64 h 8)))))
+        (is (= 2 (header-count path)))))))

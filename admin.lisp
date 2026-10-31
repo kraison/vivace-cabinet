@@ -86,7 +86,7 @@ linear hash's index files are mostly holes."
     (with-write-lock ((%db-lock db))
       (%check-open db)
       (when (%db-writable-p db)
-        (%sync-storage db)
+        (%sync-storage db nil)
         (%write-header db :open t))
       (%copy-tree (%db-dir db) to)
       ;; Synchronized just now, so the copy needs no recount; a reader's

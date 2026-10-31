@@ -73,8 +73,9 @@ reader's is mapped read-only."
     (close-memory (%db-heap db))
     (setf (%db-heap db) nil)))
 
-(defmethod %sync-storage ((db tree-db))
-  (sync-region (memory-mmap (%db-heap db))))
+(defmethod %sync-storage ((db tree-db) hard)
+  (sync-region (memory-mmap (%db-heap db))
+               :sync (if hard +ms-sync+ +ms-async+)))
 
 (defun open-tree-db (dir &key (mode '(:writer :create)) engine
                            (page-size 4096) (comparator 'octets<)

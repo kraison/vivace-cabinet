@@ -18,9 +18,14 @@
 
 (defconstant +o-rdonly+ 0)
 
+(defconstant +o-wronly+ 1)
+
 (defconstant +o-rdwr+   2)
 
 (defconstant +o-creat+  #+graph-db-posix-linux #o100 #-graph-db-posix-linux #x0200)
+
+(defconstant +o-trunc+
+  #+graph-db-posix-linux #o1000 #-graph-db-posix-linux #x0400)
 
 (defconstant +seek-set+ 0)
 
@@ -71,6 +76,8 @@
   #+graph-db-posix-linux #x100000 #-graph-db-posix-linux 0)
 
 (defconstant +ms-sync+       #+graph-db-posix-linux #x04   #-graph-db-posix-linux #x10) ; Linux 4, Darwin 16
+
+(defconstant +ms-async+      1)
 
 ;; (void *)-1 as an unsigned 64-bit address: mmap's failure sentinel (MAP_FAILED).
 (defconstant +map-failed-address+ (1- (expt 2 64)))
@@ -146,6 +153,17 @@ Signals an error if lseek or write fails (e.g. ENOSPC)."
 
 (defun %posix-fchmod (fd mode)
   (cffi:foreign-funcall "fchmod" :int fd :unsigned-int mode :int))
+
+(defun %posix-fsync (fd)
+  "fsync(2).  Signals on failure."
+  (when (minusp (cffi:foreign-funcall "fsync" :int fd :int))
+    (error "posix fsync failed for fd ~D" fd)))
+
+(defun %posix-rename (from to)
+  "rename(2) on two namestrings.  Signals on failure."
+  (when (minusp (cffi:foreign-funcall "rename" :string from :string to
+                                      :int))
+    (error "posix rename failed for ~A to ~A" from to)))
 
 (defun %posix-mmap (addr length prot flags fd offset)
   "mmap(2).  ADDR is a foreign pointer (or null-pointer).  Returns the mapping
