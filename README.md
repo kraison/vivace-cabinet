@@ -73,7 +73,8 @@ compare-and-swap that finds another value) returns NIL, and
 `(db-error db)` says why: `:duplicate-record`, `:no-record`,
 `:no-permission` or `:logic`. Real problems signal `vivace-cabinet-error`
 subclasses: `open-error`, `invalid-argument`, `key-too-long`,
-`reservation-exhausted`, `not-implemented` and its subclass
+`system-error` (a file the copy and snapshot calls cannot read, write
+or rename), `reservation-exhausted`, `not-implemented` and its subclass
 `transactions-not-implemented`. An `open-error` raised by a failure in
 the files keeps that condition under `open-error-cause`, so a caller
 can tell a permission problem from a damaged file.

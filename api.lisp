@@ -4,6 +4,13 @@
 
 (in-package #:vivace-cabinet)
 
+(defmacro %with-system-errors (&body body)
+  "Run BODY; a FILE-ERROR or STREAM-ERROR from it signals SYSTEM-ERROR
+(#8), so that file trouble stays within VIVACE-CABINET-ERROR."
+  `(handler-case (progn ,@body)
+     ((or file-error stream-error) (c)
+       (%signal 'system-error "~a" c))))
+
 (defgeneric close-db (db))
 (defgeneric db-set (db key value))
 (defgeneric db-add (db key value))

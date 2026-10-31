@@ -119,3 +119,24 @@ signals before any record is stored (#8)."
               (t
                (is-true (db-load-snapshot db long))
                (is (= 3 (db-count db)))))))))
+
+(def-db-test file-trouble-signals-system-error
+  "A missing snapshot, a dump into a missing directory and a copy under
+a file signal SYSTEM-ERROR, a VIVACE-CABINET-ERROR (#8), and change
+nothing."
+  (with-temp-directory (dir)
+    (with-test-db (db (merge-pathnames "s.vc/" dir))
+      (db-set db "k" "v")
+      (signals system-error
+        (db-load-snapshot db (merge-pathnames "none.snap" dir)))
+      (signals system-error
+        (db-dump-snapshot db (merge-pathnames "nodir/x.snap" dir)))
+      (with-open-file (out (merge-pathnames "afile" dir) :direction :output)
+        (write-line "x" out))
+      (signals system-error (db-copy db (merge-pathnames "afile/c.vc/" dir)))
+      (is (equal "v" (db-get db "k" :as :string)))
+      (is (equal '("afile")
+                 (mapcar #'file-namestring (uiop:directory-files dir))))
+      (is (equal '("s.vc")
+                 (mapcar (lambda (d) (car (last (pathname-directory d))))
+                         (uiop:subdirectories dir)))))))

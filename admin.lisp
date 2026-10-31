@@ -86,11 +86,12 @@ linear hash's index files are mostly holes."
       (when (%db-writable-p db)
         (%sync-storage db nil)
         (%write-header db :open t))
-      (%copy-tree (%db-dir db) to)
-      ;; Synchronized just now, so the copy needs no recount; a reader's
-      ;; header says what the last writer left.
-      (when (%db-writable-p db)
-        (%mark-closed to))
+      (%with-system-errors
+        (%copy-tree (%db-dir db) to)
+        ;; Synchronized just now, so the copy needs no recount; a
+        ;; reader's header says what the last writer left.
+        (when (%db-writable-p db)
+          (%mark-closed to)))
       t)))
 
 ;;; Merging
