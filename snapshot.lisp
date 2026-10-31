@@ -23,6 +23,28 @@
 (defun %read-u64 (in path)
   (%get-u64 (%read-octets in 8 path) 0))
 
+(defun %skip-octets (in n path)
+  "Move IN past N bytes; signals INVALID-ARGUMENT if PATH ends first."
+  (let ((end (+ (file-position in) n)))
+    (when (> end (file-length in))
+      (%signal 'invalid-argument "~a: the snapshot ends early" path))
+    (file-position in end)))
+
+(defun %check-snapshot (in path limit)
+  "Read the snapshot IN through once: INVALID-ARGUMENT unless PATH is a
+whole snapshot, KEY-TOO-LONG for a key longer than LIMIT (NIL: no
+limit).  Leaves IN after the magic, at the first record."
+  (unless (equalp +snapshot-magic+ (%read-octets in 8 path))
+    (%signal 'invalid-argument "~a: not a vivace-cabinet snapshot" path))
+  (loop for klen = (%read-u64 in path)
+        until (= klen +snapshot-end+)
+        do (let ((vlen (%read-u64 in path)))
+             (when (and limit (> klen limit))
+               (%signal 'key-too-long "~a: a ~d-byte key; the limit is ~d"
+                        path klen limit))
+             (%skip-octets in (+ klen vlen) path)))
+  (file-position in 8))
+
 (defun %rename-over (from to)
   "Rename file FROM to TO, replacing TO.  rename(2), since RENAME-FILE
 fills a missing type in TO from FROM."
@@ -54,9 +76,9 @@ fills a missing type in TO from FROM."
   (if (not (%db-writable-p db))
       (%fail db :no-permission)
       (with-open-file (in path :element-type '(unsigned-byte 8))
-        (unless (equalp +snapshot-magic+ (%read-octets in 8 path))
-          (%signal 'invalid-argument "~a: not a vivace-cabinet snapshot"
-                   path))
+        ;; All or nothing: a bad snapshot signals before any record
+        ;; is stored.
+        (%check-snapshot in path (%key-limit db))
         (loop for klen = (%read-u64 in path)
               until (= klen +snapshot-end+)
               do (let* ((vlen (%read-u64 in path))

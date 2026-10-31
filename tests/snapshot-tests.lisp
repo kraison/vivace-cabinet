@@ -87,3 +87,35 @@ leaves it as it was, and no temporary file behind."
                             (mapcar #'file-namestring
                                     (uiop:directory-files dir)))))))
         (ignore-errors (close-db db))))))
+
+(def-db-test bad-snapshots-load-nothing
+  "A snapshot cut short, or holding a key too long for the database,
+signals before any record is stored (#8)."
+  (with-temp-directory (dir)
+    (let ((whole (merge-pathnames "whole.snap" dir))
+          (cut (merge-pathnames "cut.snap" dir))
+          (long (merge-pathnames "long.snap" dir)))
+      (with-test-db (db (merge-pathnames "s.vc/" dir))
+        (dotimes (i 3)
+          (db-set db (keyed i) "v"))
+        (db-dump-snapshot db whole))
+      (let ((all (file-octets whole)))
+        (with-open-file (out cut :direction :output
+                                 :element-type '(unsigned-byte 8))
+          (write-sequence all out :end (- (length all) 12))))
+      ;; In key order, so the long key comes last.
+      (with-db (src (merge-pathnames "o.vct/" dir) :type :tree
+                                                   :engine :skip-list)
+        (db-set src "a" "v")
+        (db-set src "b" "v")
+        (db-set src (make-string 2000 :initial-element #\z) "v")
+        (db-dump-snapshot src long))
+      (with-test-db (db (merge-pathnames "l.vc/" dir))
+        (signals invalid-argument (db-load-snapshot db cut))
+        (is (= 0 (db-count db)))
+        (cond ((eq :bplus-tree (getf *db-type-args* :engine))
+               (signals key-too-long (db-load-snapshot db long))
+               (is (= 0 (db-count db))))
+              (t
+               (is-true (db-load-snapshot db long))
+               (is (= 3 (db-count db)))))))))

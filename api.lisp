@@ -167,8 +167,10 @@ on it signals INVALID-ARGUMENT.  T, or NIL with :NO-PERMISSION for a
 writable visit on a reader."))
 
 (defgeneric db-accept-bulk (db keys visitor &key writable as)
-  (:documentation "DB-ACCEPT for each of KEYS in order, atomically for
-all of them."))
+  (:documentation "DB-ACCEPT for each of KEYS in order, holding every
+key's lock for the whole call: isolated from other threads, but not
+all-or-nothing, since VISITOR's error leaves the keys before it
+changed."))
 
 (defgeneric db-cas (db key old new)
   (:documentation "Store NEW under KEY if its value is OLD; OLD NIL means
@@ -193,7 +195,8 @@ fail, positive infinity sets the value to NUM."))
 (defgeneric db-set-bulk (db records &key atomic)
   (:documentation "Store RECORDS, an alist of (key . value); a key given
 twice takes its last value.  The number of keys stored, or NIL.  ATOMIC
-(the default) stores them all at once."))
+(the default) holds every key while it stores them; a failure partway
+leaves the earlier keys stored either way."))
 
 (defgeneric db-get-bulk (db keys &key atomic as)
   (:documentation "An alist of (key . value) for those of KEYS that are
@@ -268,8 +271,9 @@ T."))
 
 (defgeneric db-load-snapshot (db path)
   (:documentation "Store every record in the snapshot file PATH.  T, or
-NIL with :NO-PERMISSION on a reader; a file that is not a whole snapshot
-signals INVALID-ARGUMENT."))
+NIL with :NO-PERMISSION on a reader.  The file is read through first, so
+one that is not a whole snapshot signals INVALID-ARGUMENT, and a key too
+long for DB KEY-TOO-LONG, before any record is stored."))
 
 (define-condition transactions-not-implemented (not-implemented) ())
 

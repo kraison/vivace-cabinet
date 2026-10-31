@@ -23,6 +23,9 @@
 (defmethod %record-count ((db tree-db))
   (engine-count (tree-db-engine db)))
 
+(defmethod %key-limit ((db tree-db))
+  (engine-key-limit (tree-db-engine db)))
+
 (defun %open-heap (db create)
   "Create or open DB's heap within its address-space reservation; a
 reader's is mapped read-only."

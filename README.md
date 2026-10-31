@@ -131,7 +131,9 @@ A visitor is a function of a key and its value (NIL when the key is
 absent) whose answer says what becomes of the record: NIL or `:nop`
 keeps it, `:remove` removes it, and anything else is the new value.
 `db-accept` visits one key, and `db-accept-bulk` a list of keys in order,
-atomically for all of them. `:writable nil` visits without changing
+holding all of them for the whole call: other threads see none of the
+keys change until it ends, but a visitor's error leaves the keys before
+it changed, as in Kyoto Cabinet. `:writable nil` visits without changing
 anything, the only kind of visit a reader allows. A visitor runs while
 the database holds its key's lock, so it must not use the database: a
 call on it from the visitor's thread signals `invalid-argument` instead
@@ -151,7 +153,9 @@ it but reports failure with `:logic`, that being its failure value.
 `db-set-bulk` stores an alist of keys and values (a key given twice
 takes its last value) and returns how many it stored; `db-get-bulk`
 returns an alist of the keys it finds; `db-remove-bulk` returns how many
-it removed. Each is atomic unless given `:atomic nil`.
+it removed. Each holds its keys for the whole call unless given
+`:atomic nil`; neither way is all-or-nothing, so a key too long for a B+
+tree partway leaves the earlier keys stored.
 
 `db-iterate` visits every record while holding the whole database:
 other threads wait until it ends, as in Kyoto Cabinet, and get their
@@ -176,7 +180,9 @@ after another, so under `:set` a key in several sources takes the last
 one's value.
 
 `db-dump-snapshot` writes every record to one file, and `db-load-snapshot`
-stores a snapshot's records into a database of either type. A dump goes
+stores a snapshot's records into a database of either type, reading the
+whole file first, so a snapshot cut short or holding a key too long for
+the database signals and stores nothing. A dump goes
 through `PATH.tmp`, so one that fails leaves the snapshot already at
 `PATH` as it was. The format is vivace-cabinet's own: 8 magic bytes, then
 each record's key length and value length (8 bytes each, little-endian),

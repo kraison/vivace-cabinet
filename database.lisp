@@ -46,6 +46,10 @@
 
 (defgeneric %record-count (db))
 
+(defgeneric %key-limit (db)
+  (:documentation "The longest key DB stores, in bytes, or NIL.")
+  (:method ((db database)) nil))
+
 (defgeneric %create-storage (db)
   (:documentation "Create DB's storage in its existing directory."))
 
