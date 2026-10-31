@@ -111,3 +111,63 @@ minutes."
             (bt:destroy-thread th)))
         (mapc #'bt:join-thread others)
         (is (null problems) "~s" problems)))))
+
+(test fair-lock-keeps-writers-exclusive
+  "Threads take the lock shared and exclusively at random: an exclusive
+hold never overlaps another hold, and every thread finishes."
+  (let ((lock (make-fair-lock))
+        (inside 0)
+        (writing nil)
+        (overlaps 0)
+        (counter (bt:make-lock)))
+    (labels ((note (bad)
+               (when bad
+                 (bt:with-lock-held (counter)
+                   (incf overlaps))))
+             (work (n)
+               (let ((*random-state* (sb-ext:seed-random-state n)))
+                 (dotimes (i 2000)
+                   (if (zerop (random 4))
+                       (with-exclusive-lock (lock)
+                         (note (or writing (plusp inside)))
+                         (setf writing t)
+                         (sleep 0.0001)
+                         (setf writing nil))
+                       (with-shared-lock (lock)
+                         (note writing)
+                         (bt:with-lock-held (counter) (incf inside))
+                         (sleep 0.0001)
+                         (bt:with-lock-held (counter) (decf inside))))))))
+      (let ((threads (loop for n below 8
+                           collect (let ((n n))
+                                     (bt:make-thread (lambda () (work n)))))))
+        (is-true (finish-within threads 60))
+        (is (zerop overlaps) "~d overlapping holds" overlaps)
+        (is (zerop inside))))))
+
+(def-db-test whole-database-calls-do-not-starve-per-key-calls
+  "Back-to-back DB-ITERATE calls on one thread leave another thread's
+per-key calls a turn between them (#8): the lock lets waiting readers
+in when a writer leaves, before the next writer."
+  (with-temp-db (db)
+    (dotimes (i 300)
+      (db-set db (keyed i) "v"))
+    (let ((stop nil)
+          (sets 0)
+          (iterations 0))
+      (let ((threads
+              (list (bt:make-thread
+                     (lambda ()
+                       (loop until stop
+                             do (db-iterate db (answer :nop) :writable nil)
+                                (incf iterations))))
+                    (bt:make-thread
+                     (lambda ()
+                       (loop until stop
+                             do (db-set-bulk db '(("a" . "1")))
+                                (incf sets)))))))
+        (sleep 2)
+        (setf stop t)
+        (is-true (finish-within threads 30))
+        (is (>= sets 50) "~d bulk sets beside ~d iterations"
+            sets iterations)))))

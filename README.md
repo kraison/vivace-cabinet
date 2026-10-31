@@ -150,7 +150,8 @@ returns an alist of the keys it finds; `db-remove-bulk` returns how many
 it removed. Each is atomic unless given `:atomic nil`.
 
 `db-iterate` visits every record while holding the whole database:
-other threads wait until it ends, as in Kyoto Cabinet.
+other threads wait until it ends, as in Kyoto Cabinet, and get their
+turn before the next whole-database call.
 `db-scan-parallel` visits every record from `:threads` threads (4) at
 once, read-only, also holding the database. `cursor-accept` visits a
 cursor's record, and with `:step t` moves on.

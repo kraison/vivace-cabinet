@@ -33,7 +33,7 @@ is past the last one.  Each chain is read under its stripe."
                         (setf past t)))))
     (values (unless past
               (loop for d in digests
-                    nconc (with-read-lock ((%stripe db d))
+                    nconc (with-shared-lock ((%stripe db d))
                             (loop for addr = (lhash-get index d)
                                     then (record-next heap addr)
                                   until (or (null addr) (zerop addr))
@@ -55,7 +55,7 @@ holds the database lock."
 (defmacro %with-hash-cursor ((db c) &body body)
   "Run BODY with DB bound to C's database, holding its lock shared."
   `(let ((,db (%hc-db ,c)))
-     (with-read-lock ((%db-lock ,db))
+     (with-shared-lock ((%db-lock ,db))
        (%check-open ,db)
        ,@body)))
 
@@ -70,7 +70,7 @@ holds the database lock."
         (let* ((k (to-octets key))
                (d (%digest k))
                (index (hash-db-index db)))
-          (if (with-read-lock ((%stripe db d))
+          (if (with-shared-lock ((%stripe db d))
                 (%find db d k))
               (let ((b (with-read-lock ((%lhash-split-lock index))
                          (hash index (%lhash-level index) d))))
@@ -96,7 +96,7 @@ lock."
       (unless k
         (return nil))
       (let* ((d (%digest k))
-             (v (with-read-lock ((%stripe db d))
+             (v (with-shared-lock ((%stripe db d))
                   (let ((addr (%find db d k)))
                     (and addr (record-value (%db-heap db) addr))))))
         (when v

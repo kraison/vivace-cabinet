@@ -20,7 +20,7 @@
 A count the cursor's differs from means a clear came between.  A move
 asks the engine for the key alone, so it reads no value (#7)."
   (let ((db (%tc-db c)))
-    (with-read-lock ((%db-lock db))
+    (with-shared-lock ((%db-lock db))
       (%check-open db)
       (multiple-value-bind (k v) (funcall fn (tree-db-engine db))
         (values k v (%db-clears db))))))
