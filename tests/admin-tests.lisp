@@ -137,6 +137,39 @@ of holes around two 4 KiB blocks cost about the blocks."
           (read-sequence got in)
           (is (equalp block got)))))))
 
+(defun chmod-files (dir mode)
+  "chmod every file under DIR to MODE, a string."
+  (uiop:run-program (list "find" (uiop:native-namestring dir) "-type" "f"
+                          "-exec" "chmod" mode "{}" "+")))
+
+(def-db-test copy-of-files-without-owner-write
+  "A writable database whose files lost owner write (0440) still copies:
+the copy's files are 0440 too and its header says closed with the
+count, since the copy writes that header while copying it, rewriting
+and reopening nothing (#8)."
+  (with-temp-directory (dir)
+    (let ((orig (merge-pathnames "o.vc/" dir))
+          (copy (merge-pathnames "c.vc/" dir)))
+      (with-test-db (db orig)
+        (dotimes (i 20)
+          (db-set db (keyed i) "v"))
+        (chmod-files orig "440")
+        (unwind-protect
+             (progn
+               (is-true (db-copy db copy))
+               (is (equal (file-modes orig) (file-modes copy)))
+               (is (= #o440 (cdr (assoc "header.dat" (file-modes copy)
+                                        :test #'equal))))
+               (let ((header (%read-header copy)))
+                 (is (null (getf header :open)))
+                 (is (= 20 (getf header :count)))))
+          ;; The writer must write its header to close.
+          (chmod-files orig "640")))
+      (chmod-files copy "640")
+      (with-db (c copy)
+        (is (= 20 (db-count c)))
+        (is (equal "v" (db-get c (keyed 3) :as :string)))))))
+
 (def-db-test copy-turns-a-sync-failure-into-system-error
   "A FILE-ERROR from synchronizing the database before the copy signals
 SYSTEM-ERROR, like one from the copy itself (#8)."

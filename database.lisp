@@ -102,10 +102,9 @@ before the rename and the directory after it."
         (unwind-protect (%posix-fsync dir)
           (%posix-close dir))))))
 
-(defun %write-header (db &key open hard)
-  "Write DB's header: magic VCAB, format 1, type, OPEN (1 while a writer
-has the database open), engine, record count, structure address.  It
-replaces header.dat whole; HARD makes it durable."
+(defun %header-octets (db &key open)
+  "DB's header as it stands: magic VCAB, format 1, type, OPEN (1 while a
+writer has the database open), engine, record count, structure address."
   (let ((h (make-array +header-bytes+ :element-type '(unsigned-byte 8)
                                       :initial-element 0)))
     (replace h +header-magic+)
@@ -115,7 +114,13 @@ replaces header.dat whole; HARD makes it durable."
           (aref h 7) (%engine-code db))
     (%put-u64 h 8 (%record-count db))
     (%put-u64 h 16 (%header-address db))
-    (%replace-file (%header-file (%db-dir db)) h hard)))
+    h))
+
+(defun %write-header (db &key open hard)
+  "Write DB's header file (%HEADER-OCTETS), replacing header.dat whole;
+HARD makes it durable."
+  (%replace-file (%header-file (%db-dir db)) (%header-octets db :open open)
+                 hard))
 
 (defun %read-header (dir)
   "DIR's header as a plist: :TYPE (:HASH or :TREE), :OPEN, :ENGINE, :COUNT

@@ -66,10 +66,12 @@ without them reports the rest of the file as data."
                                        :long length :int))
     (%signal 'system-error "cannot set the length of ~a" (pathname stream))))
 
-(defun %copy-sparse (from to)
+(defun %copy-sparse (from to &key edit)
   "Copy file FROM to TO with FROM's mode, reading only FROM's data (#8)
 and leaving 64 KiB runs of zeros as holes: the linear hash's index
-files are mostly holes.  Returns the number of bytes read."
+files are mostly holes.  EDIT, if given, is called with TO's stream
+once the copy is written, before TO takes FROM's mode, which may not
+allow writing.  Returns the number of bytes read."
   (let ((buf (make-array 65536 :element-type '(unsigned-byte 8)))
         (bytes 0))
     (declare (type (simple-array (unsigned-byte 8) (65536)) buf))
@@ -102,15 +104,22 @@ files are mostly holes.  Returns the number of bytes read."
                                      (incf start n)))
                           (setf pos end)))
             (%posix-close fd))
+          (when edit
+            (funcall edit out))
           ;; The copy's length, holes at the end included, and mode.
           (%set-length out size)
           (%posix-fchmod (sb-sys:fd-stream-fd out) (%file-mode from)))))
     bytes))
 
-(defun %copy-tree (from to)
+(defun %copy-tree (from to &key edit-header)
+  "Copy the files under FROM into TO; EDIT-HEADER edits the copy of
+FROM's header.dat as %COPY-SPARSE's EDIT."
   (ensure-directories-exist to)
   (dolist (f (uiop:directory-files from))
-    (%copy-sparse f (merge-pathnames (file-namestring f) to)))
+    (%copy-sparse f (merge-pathnames (file-namestring f) to)
+                  :edit (and (equal (file-namestring f)
+                                    (file-namestring (%header-file from)))
+                             edit-header)))
   (dolist (d (uiop:subdirectories from))
     (%copy-tree d (merge-pathnames
                    (make-pathname :directory
@@ -118,12 +127,14 @@ files are mostly holes.  Returns the number of bytes read."
                                         (car (last (pathname-directory d)))))
                    to))))
 
-(defun %mark-closed (dir)
-  "Clear the open flag in DIR's header."
-  (with-open-file (s (%header-file dir) :direction :io :if-exists :overwrite
-                                        :element-type '(unsigned-byte 8))
-    (file-position s 6)
-    (write-byte 0 s)))
+(defun %closed-header-writer (db)
+  "A %COPY-SPARSE EDIT that writes DB's header as a closed database's
+over the copy: the count and address as they stand, so the copy opens
+without a recount, and nothing of DB's own files is rewritten or the
+copy's reopened, which files without owner write would refuse."
+  (lambda (out)
+    (file-position out 0)
+    (write-sequence (%header-octets db) out)))
 
 (defmethod db-copy ((db database) dest)
   (let ((to (uiop:ensure-directory-pathname (merge-pathnames dest)))
@@ -137,13 +148,11 @@ files are mostly holes.  Returns the number of bytes read."
     (%holding (db :exclusive)
       (%with-system-errors
         (when (%db-writable-p db)
-          (%sync-storage db nil)
-          (%write-header db :open t))
-        (%copy-tree (%db-dir db) to)
-        ;; Synchronized just now, so the copy needs no recount; a
-        ;; reader's header says what the last writer left.
-        (when (%db-writable-p db)
-          (%mark-closed to)))
+          (%sync-storage db nil))
+        ;; A reader's copy keeps the header the last writer left.
+        (%copy-tree (%db-dir db) to
+                    :edit-header (and (%db-writable-p db)
+                                      (%closed-header-writer db))))
       t)))
 
 ;;; Merging
