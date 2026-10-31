@@ -25,8 +25,17 @@ the first record, until FN returns :STOP."
 (defun %key-text (k)
   (babel:octets-to-string k :encoding :utf-8 :errorp nil))
 
+(defun %check-max (max)
+  "MAX, a match's limit: NIL or a natural number (#9), else
+INVALID-ARGUMENT."
+  (unless (typep max '(or null (integer 0)))
+    (%signal 'invalid-argument "MAX must be NIL or a natural number: ~s"
+             max))
+  max)
+
 (defmethod db-match-prefix ((db database) prefix &key max (as :octets))
   (check-as as)
+  (%check-max max)
   (let ((p (to-octets prefix))
         (ordered (%byte-ordered-p db))
         (found '())
@@ -40,6 +49,7 @@ the first record, until FN returns :STOP."
 
 (defmethod db-match-regex ((db database) regex &key max (as :octets))
   (check-as as)
+  (%check-max max)
   (let ((scanner (handler-case (cl-ppcre:create-scanner regex)
                    (cl-ppcre:ppcre-syntax-error (c)
                      (%signal 'invalid-argument
@@ -76,6 +86,7 @@ the first record, until FN returns :STOP."
 (defmethod db-match-similar ((db database) origin range &key utf max
                                                               (as :octets))
   (check-as as)
+  (%check-max max)
   (unless (typep range '(integer 0))
     (%signal 'invalid-argument "RANGE must be a natural number: ~s" range))
   (let* ((o (to-octets origin))

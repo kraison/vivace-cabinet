@@ -232,10 +232,11 @@ so far (#9)."
 ;;; Matching: Kyoto returns keys as C strings in an array of MAX slots
 
 (defun %matches (db max as fn)
-  "Call FN with an array of MAX (or every record's) slots and that size;
-the keys it fills, AS."
+  "Call FN with an array of slots for the keys, as many as there are
+records or MAX if fewer (#9), and that number; the keys it fills, AS."
   (check-as as)
-  (let ((slots (or max (db-count db))))
+  (%check-max max)
+  (let ((slots (if max (min max (db-count db)) (db-count db))))
     (cffi:with-foreign-object (strary :pointer (max 1 slots))
       (let ((n (funcall fn strary slots)))
         (and (>= n 0)
@@ -258,8 +259,11 @@ the keys it fills, AS."
 
 (defmethod db-match-similar ((db kyoto-db) origin range
                              &key utf max (as :octets))
+  (unless (typep range '(integer 0))
+    (%signal 'invalid-argument "RANGE must be a natural number: ~s" range))
   (with-c-string (p (to-octets origin))
+    ;; Kyoto's range is 32 bits; no key is further off than that.
     (%matches db max as (lambda (arr slots)
                           (%kcdbmatchsimilar (%ptr db) p
-                                             range
+                                             (min range #xFFFFFFFF)
                                              (if utf 1 0) arr slots)))))

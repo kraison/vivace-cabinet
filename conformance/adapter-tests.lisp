@@ -101,3 +101,22 @@ every key of a match."
         (fiveam:signals invalid-argument (db-match-prefix db "" :as :string))
         (fiveam:is (= 3 frees))))))
 
+
+(fiveam:test adapter-matches-check-their-arguments
+  "A RANGE or :MAX that is not a natural number signals INVALID-ARGUMENT,
+as vivace-cabinet's matches do, not TYPE-ERROR from the C types; slots
+are allocated for the records there are, not for a huge :MAX; a RANGE
+beyond Kyoto's 32 bits still matches every key (#9)."
+  (with-kyoto (db "m.kct")
+    (dolist (k '("a" "ab" "b"))
+      (db-set db k "v"))
+    (fiveam:signals invalid-argument (db-match-similar db "a" -1))
+    (fiveam:signals invalid-argument (db-match-prefix db "a" :max -1))
+    (fiveam:signals invalid-argument (db-match-regex db "a" :max -1))
+    (fiveam:signals invalid-argument (db-match-similar db "a" 1 :max -1))
+    (fiveam:is (null (db-match-prefix db "a" :max 0)))
+    (fiveam:is (equal '("a" "ab")
+                      (db-match-prefix db "a" :max (expt 2 62) :as :string)))
+    (fiveam:is (equal '("a" "ab" "b")
+                      (sort (db-match-similar db "a" (expt 2 40) :as :string)
+                            #'string<)))))

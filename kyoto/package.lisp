@@ -4,6 +4,6 @@
 (defpackage #:vivace-cabinet-kyoto
   (:use #:common-lisp #:vivace-cabinet)
   (:import-from #:vivace-cabinet
-                #:to-octets #:from-octets #:check-as #:%signal #:octets
-                #:%release-cursor #:%cursor-db)
+                #:to-octets #:from-octets #:check-as #:%check-max #:%signal
+                #:octets #:%release-cursor #:%cursor-db)
   (:export #:kyoto-db #:open-kyoto-db #:kyoto-error-code))
