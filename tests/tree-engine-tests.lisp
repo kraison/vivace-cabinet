@@ -316,3 +316,20 @@ of line gives its heap record back (#7)."
         (is (= before (heap-free-bytes heap)))
         (is (null (engine-get e k)))
         (is (= 40 (engine-count e)))))))
+
+(test bplus-engine-put-that-signals-after-its-leaf-write-keeps-the-value
+  "A put whose insert signals once a leaf holds the new value, in place
+or by a split, must not free the record the value took out of line: a
+later record would take its space (#7)."
+  (with-temp-memory (heap)
+    (let ((e (make-bplus-engine heap :page-size 1024))
+          (n 80))
+      (flet ((key (i) (oct (format nil "k~2,'0d" i)))
+             (value (i) (octets-of-length 300 (mod i 256))))
+        (dotimes (i n)
+          (signals injected-failure
+            (with-failing-call (%bpt-sync-root 1)
+              (engine-put e (key i) (value i)))))
+        (is (< 1 (%bpt-height (%bpe-tree e))))
+        (is (loop for i below n
+                  always (equalp (value i) (engine-get e (key i)))))))))

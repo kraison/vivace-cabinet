@@ -152,6 +152,10 @@ are dead the moment the next page is chosen."
 that fails leaves the tree as it was (#7).  %BPT-INSERT-TOP binds it
 and frees what a split does not use.")
 
+(defvar *bpt-leaf-written* nil
+  "Set to T when an insert has written its entry into a leaf, so a
+caller that unwinds knows whether the tree holds the value (#7).")
+
 (defun %bpt-reserve-pages (tree)
   "Before a split writes anything, take from the heap every page the
 splits above it may need: one per level and a new root (#7).  A heap
@@ -553,6 +557,8 @@ or (SEP-DKEY SEP-SKEY RIGHT-ADDR)."
             (error "B+ tree: entries too large for two ~A-byte pages"
                    (%bpt-page-size tree)))
           (%bpt-reserve-pages tree)
+          (when leaf-p
+            (setf *bpt-leaf-written* t))
           (if leaf-p
               ;; Leaf split: right keeps the upper half; its first key is copied
               ;; up as the separator (the key itself STAYS in the right leaf).
@@ -612,7 +618,9 @@ serialized value REPLACE displaced, if any."
                 (when exact
                   (%bpt-page-delete-at buf idx))
                 (values (if (%bpt-page-insert-at tree buf t ins skey sval)
-                            (progn (%bpt-write-page tree addr buf) :no-split)
+                            (progn (setf *bpt-leaf-written* t)
+                                   (%bpt-write-page tree addr buf)
+                                   :no-split)
                             (%bpt-split-leaf tree addr buf dkey skey sval))
                         old))))
         ;; Internal: descend to the right child, then absorb any split it
