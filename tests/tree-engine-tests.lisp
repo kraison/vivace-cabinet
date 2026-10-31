@@ -245,3 +245,74 @@ and not, agrees with a model of what is left."
                                 (setf bad (list seed j))
                                 (return))))))
                (is (null bad) "floor wrong at ~a" bad)))))
+
+(defun engine-keys (e)
+  "E's keys in order, at most one more than it counts: a broken leaf
+chain then shows as an extra key instead of a walk that never ends."
+  (loop repeat (1+ (engine-count e))
+        for key = (engine-ceiling e nil nil) then (engine-ceiling e key t)
+        while key collect key))
+
+(defun heap-free-bytes (heap)
+  "The bytes HEAP has not handed out: past its pointer, or freed."
+  (+ (- (memory-size heap) (read-memory-pointer heap))
+     (reduce #'+ (free-list heap)
+             :key (lambda (block) (+ (cdr block) +allocation-header-size+)))))
+
+(test bplus-insert-that-cannot-split-leaves-the-tree-as-it-was
+  "When the heap cannot give a split its pages, the insert signals and
+the tree keeps every record it had, each still reachable (#7).  The
+second page an insert asks for is refused: the first root split asks for
+two."
+  (with-temp-memory (heap)
+    (let ((e (make-bplus-engine heap :page-size 1024))
+          (value (octets-of-length 100 1))
+          (model '())
+          (failed nil))
+      (loop for i below 200
+            until failed
+            do (let ((k (oct (format nil "k~4,'0d" i))))
+                 (handler-case
+                     (progn (with-failing-call (allocate 2)
+                              (engine-put e k value))
+                            (push k model))
+                   (injected-failure () (setf failed k)))))
+      (is-true failed)
+      (is (= (length model) (engine-count e)))
+      (is (every (lambda (k) (equalp value (engine-get e k))) model))
+      (is (null (engine-get e failed)))
+      (finishes (engine-put e failed value))
+      (push failed model)
+      (is (equalp (sort model #'octets<) (engine-keys e))))))
+
+(test bplus-engine-put-that-cannot-split-is-undone
+  "A put whose split cannot get a page signals and leaves the engine as
+it was: a replaced record keeps its old value, and a new value kept out
+of line gives its heap record back (#7)."
+  (with-temp-memory (heap)
+    (let* ((e (make-bplus-engine heap :page-size 1024))
+           (keys (loop for i below 40 collect (oct (format nil "k~2,'0d" i))))
+           (small (octets-of-length 100 1))
+           (grown (octets-of-length 250 3))
+           (hit nil))
+      (dolist (k keys)
+        (engine-put e k small))
+      ;; Eleven neighbours grown to a quarter page each must split a
+      ;; leaf; the page is refused.
+      (loop for k in (subseq keys 15 26)
+            until hit
+            do (handler-case (with-failing-call (allocate 1)
+                               (engine-put e k grown))
+                 (injected-failure () (setf hit k))))
+      (is-true hit)
+      (is (equalp small (engine-get e hit)))
+      (is (= 40 (engine-count e)))
+      (is (equalp keys (engine-keys e)))
+      (let ((before (heap-free-bytes heap))
+            (k (oct "k15a")))
+        (signals injected-failure
+          (with-failing-call (%bpt-insert-top 1)
+            (engine-put e k (octets-of-length 300 2))))
+        (is (= before (heap-free-bytes heap)))
+        (is (null (engine-get e k)))
+        (is (= 40 (engine-count e)))))))

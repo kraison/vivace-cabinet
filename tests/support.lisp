@@ -173,3 +173,31 @@ True when all ended in time."
                                           out)))
     (funcall thunk)
     (get-output-stream-string out)))
+
+;;; Instrumenting named functions (SBCL's encapsulation).
+
+(define-condition injected-failure (error) ()
+  (:documentation "What WITH-FAILING-CALL signals."))
+
+(defmacro with-failing-call ((name nth) &body body)
+  "Run BODY with call number NTH to the function NAME signalling
+INJECTED-FAILURE instead of running.  Not nestable on one NAME."
+  (let ((n (gensym "N")))
+    `(let ((,n 0))
+       (sb-int:encapsulate ',name 'failing
+                           (lambda (f &rest args)
+                             (if (= (incf ,n) ,nth)
+                                 (error 'injected-failure)
+                                 (apply f args))))
+       (unwind-protect (progn ,@body)
+         (sb-int:unencapsulate ',name 'failing)))))
+
+(defun calls-to (name thunk)
+  "How many times THUNK calls the function NAME."
+  (let ((n 0))
+    (sb-int:encapsulate name 'counting
+                        (lambda (f &rest args)
+                          (incf n)
+                          (apply f args)))
+    (unwind-protect (progn (funcall thunk) n)
+      (sb-int:unencapsulate name 'counting))))

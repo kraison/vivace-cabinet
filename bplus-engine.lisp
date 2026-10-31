@@ -170,14 +170,15 @@ search the subtrees left of the descent's path, nearest first."
              (length key) (%bpe-quarter e)))
   (let ((tree (%bpe-tree e))
         (sval (%bpe-encode e key value))
-        (old nil))
-    (with-bpt-write-lock (tree)
-      (multiple-value-bind (osval found) (%bpt-find tree key)
-        (when found
-          (setf old osval)
-          (%bpt-remove-top tree key)))
-      (%bpt-insert-top tree key key sval))
-    (%bpe-free e old)
+        (old nil)
+        (done nil))
+    ;; A put that goes in frees the record it replaced; one that signals
+    ;; frees the record it wrote (#7).
+    (unwind-protect
+         (with-bpt-write-lock (tree)
+           (setf old (nth-value 1 (%bpt-insert-top tree key key sval t))
+                 done t))
+      (%bpe-free e (if done old sval)))
     t))
 
 (defmethod engine-delete ((e bplus-engine) key)
