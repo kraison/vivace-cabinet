@@ -156,3 +156,27 @@ the way the cursor last moved, as Kyoto's get does."
       (db-remove db (keyed 3))
       (is (equal (keyed 4) (cursor-get-key cur :as :string :step t)))
       (is (equal (keyed 2) (cursor-get-key cur :as :string))))))
+
+(def-tree-test cursor-move-that-meets-a-clear-lands-nowhere
+  "A move's search and its reading of the clear count happen under one
+hold of the database, so a clear that lands during the search (#9)
+leaves the cursor nowhere, not on the record the search found."
+  (with-temp-db (db)
+    (dolist (k '("a" "b"))
+      (db-set db k "v"))
+    (with-cursor (cur db)
+      (cursor-jump cur "a")
+      ;; What a clear and a set by other threads leave: no "a" or "b",
+      ;; a "c", and the count up by one.
+      (is (null (%tc-move cur (lambda (e)
+                                (engine-delete e (to-octets "a"))
+                                (engine-delete e (to-octets "b"))
+                                (engine-put e (to-octets "c") (to-octets "v"))
+                                (incf (%db-clears db))
+                                (engine-ceiling e (to-octets "a") t))
+                          nil)))
+      (is (eq :no-record (db-error db)))
+      (is (null (cursor-get cur)))
+      (is-true (cursor-jump cur))
+      (is (equal "c" (cursor-get-key cur :as :string))))))
+

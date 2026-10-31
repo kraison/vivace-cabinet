@@ -85,41 +85,54 @@ holds the database lock."
                            (%hc-bucket c) -1)
                      (%fail db :no-record)))))))
 
+(defun %hc-current (c db)
+  "C's record in DB, (values key value), moving on past any removed
+since; NIL at the end, or after a clear.  The caller holds the database
+lock."
+  (when (/= (%hc-clears c) (%db-clears db))
+    (setf (%hc-key c) nil))
+  (loop
+    (let ((k (%hc-key c)))
+      (unless k
+        (return nil))
+      (let* ((d (%digest k))
+             (v (with-read-lock ((%stripe db d))
+                  (let ((addr (%find db d k)))
+                    (and addr (record-value (%db-heap db) addr))))))
+        (when v
+          (return (values k v)))
+        (%hc-advance c)))))
+
 (defmethod %cursor-current ((c hash-cursor))
   (%with-hash-cursor (db c)
-    (when (/= (%hc-clears c) (%db-clears db))
-      (setf (%hc-key c) nil))
-    (loop
-      (let ((k (%hc-key c)))
-        (unless k
-          (return nil))
-        (let* ((d (%digest k))
-               (v (with-read-lock ((%stripe db d))
-                    (let ((addr (%find db d k)))
-                      (and addr (record-value (%db-heap db) addr))))))
-          (when v
-            (return (values k v)))
-          (%hc-advance c))))))
+    (%hc-current c db)))
 
 (defmethod %cursor-pass ((c hash-cursor) key)
   (declare (ignore key))
   (%with-hash-cursor (db c)
-    (%hc-advance c)))
+    (if (= (%hc-clears c) (%db-clears db))
+        (%hc-advance c)
+        (setf (%hc-key c) nil))))
+
+;; The record and the move past it under one hold of the database (#9).
 
 (defmethod cursor-step ((c hash-cursor))
-  (if (and (%cursor-current c)
-           (%with-hash-cursor (db c)
+  (if (%with-hash-cursor (db c)
+        (and (%hc-current c db)
              (%hc-advance c)))
       t
       (%fail (%hc-db c) :no-record)))
 
 (defmethod cursor-get ((c hash-cursor) &key (as :octets) step)
   (check-as as)
-  (multiple-value-bind (k v) (%cursor-current c)
+  (multiple-value-bind (k v)
+      (%with-hash-cursor (db c)
+        (multiple-value-bind (k v) (%hc-current c db)
+          (when (and k step)
+            (%hc-advance c))
+          (values k v)))
     (cond ((null k) (%fail (%hc-db c) :no-record))
-          (t (when step
-               (%cursor-pass c k))
-             (values (from-octets k as) (from-octets v as))))))
+          (t (values (from-octets k as) (from-octets v as))))))
 
 (defmethod cursor-set-value ((c hash-cursor) value)
   (let ((v (to-octets value)))
