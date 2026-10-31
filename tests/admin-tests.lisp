@@ -224,15 +224,20 @@ end; it signals INVALID-ARGUMENT."
       (db-copy db (merge-pathnames "bak/" (db-path db))))))
 
 (def-db-test closed-databases-refuse-calls-with-no-parts
-  "DB-MERGE with no sources and DB-LOAD-SNAPSHOT of an empty snapshot
-signal INVALID-ARGUMENT on a closed database, as every call does (#8)."
+  "DB-MERGE with no sources, DB-LOAD-SNAPSHOT of an empty snapshot and
+the bulk calls with no keys signal INVALID-ARGUMENT on a closed
+database, as every call does (#8)."
   (with-temp-directory (dir)
     (let ((empty (merge-pathnames "empty.snap" dir))
           (db (open-test-db (merge-pathnames "c.vc/" dir))))
       (db-dump-snapshot db empty)
       (close-db db)
       (signals invalid-argument (db-merge db '()))
-      (signals invalid-argument (db-load-snapshot db empty)))))
+      (signals invalid-argument (db-load-snapshot db empty))
+      (dolist (atomic '(t nil))
+        (signals invalid-argument (db-set-bulk db '() :atomic atomic))
+        (signals invalid-argument (db-get-bulk db '() :atomic atomic))
+        (signals invalid-argument (db-remove-bulk db '() :atomic atomic))))))
 
 (def-db-test readers-and-whole-database-calls
   "A reader refuses a writable DB-ITERATE, DB-MERGE and DB-LOAD-SNAPSHOT

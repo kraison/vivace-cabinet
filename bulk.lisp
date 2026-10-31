@@ -16,6 +16,7 @@ table of each key's last value."
     (values (nreverse keys) table)))
 
 (defmethod db-set-bulk ((db database) records &key (atomic t))
+  (%ensure-open db)
   (multiple-value-bind (keys table) (%last-values records)
     (if atomic
         (and (db-accept-bulk db keys
@@ -41,6 +42,7 @@ table of each key's last value."
 
 (defmethod db-get-bulk ((db database) keys &key (atomic t) (as :octets))
   (check-as as)
+  (%ensure-open db)
   (let ((found '()))
     (if atomic
         (db-accept-bulk db (%unique-octets keys)
@@ -57,6 +59,7 @@ table of each key's last value."
     (nreverse found)))
 
 (defmethod db-remove-bulk ((db database) keys &key (atomic t))
+  (%ensure-open db)
   (if atomic
       (let ((n 0))
         (and (db-accept-bulk db (%unique-octets keys)
