@@ -80,7 +80,10 @@ else to the operating system."))
 old or its new contents and never less (#6).  HARD fsyncs the file
 before the rename and the directory after it."
   (let* ((tmp (namestring (make-pathname :type "tmp" :defaults path)))
-         (fd (%posix-open tmp (logior +o-wronly+ +o-creat+ +o-trunc+))))
+         ;; #o666 less the umask, as any file: #o640 would drop the
+         ;; group write a second writer account needs (#6).
+         (fd (%posix-open tmp (logior +o-wronly+ +o-creat+ +o-trunc+)
+                          #o666)))
     (unwind-protect
          (cffi:with-pointer-to-vector-data (p octets)
            (unless (= (length octets) (%posix-write fd p (length octets)))

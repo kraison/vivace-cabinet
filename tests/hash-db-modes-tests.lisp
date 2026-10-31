@@ -372,3 +372,24 @@ power loss between the two cannot leave a clean header over stale data."
              (is (equal '((t t)) seen)))
         (remove-method #'%sync-storage method))
       (is (null (getf (%read-header path) :open))))))
+
+(defun file-mode-string (path)
+  "The permission field of `ls -l` for PATH, such as -rw-r--r--."
+  (subseq (uiop:run-program (list "ls" "-ld" (namestring path))
+                            :output :string)
+          0 10))
+
+(test header-mode-follows-the-umask
+  "header.dat is created with mode #o666 less the umask, as any file is
+(#6), not a fixed #o640 that drops the group write a second writer
+account needs."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "hm.vch/" dir))
+          (plain (merge-pathnames "plain" dir)))
+      (with-open-file (s plain :direction :output)
+        (write-line "x" s))
+      (with-db (db path)
+        (db-set db "k" "v")
+        (db-synchronize db))
+      (is (equal (file-mode-string plain)
+                 (file-mode-string (merge-pathnames "header.dat" path)))))))
