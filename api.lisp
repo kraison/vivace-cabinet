@@ -180,7 +180,9 @@ when the value is not OLD."))
 integer, and return the result.  An absent key starts at ORIG (0); ORIG
 the most negative 64-bit integer makes an absent key fail, the most
 positive sets the value to NUM.  NIL with :LOGIC when the value is not 8
-bytes, as in Kyoto Cabinet."))
+bytes, as in Kyoto Cabinet.  A result that is exactly the most negative
+integer is stored and returned; Kyoto stores it but reports :LOGIC, that
+being its failure value (#8)."))
 
 (defgeneric db-increment-double (db key num &key orig)
   (:documentation "DB-INCREMENT on a double float kept as Kyoto Cabinet

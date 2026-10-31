@@ -144,7 +144,9 @@ key must be absent; a new value of NIL removes the record).
 (the integral part, then the fraction in units of 10^-15, 8 bytes each,
 with the fraction rounded as Kyoto's x87 long double arithmetic rounds
 it), so the bytes are those Kyoto writes on x86-64; `:orig` is an absent
-key's starting value.
+key's starting value. One difference: a `db-increment` whose result is
+exactly the most negative 64-bit integer returns it, where Kyoto stores
+it but reports failure with `:logic`, that being its failure value.
 
 `db-set-bulk` stores an alist of keys and values (a key given twice
 takes its last value) and returns how many it stored; `db-get-bulk`
