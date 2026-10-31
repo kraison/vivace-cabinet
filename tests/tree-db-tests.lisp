@@ -116,3 +116,19 @@ chooses TreeDB, so on an existing HashDB it signals OPEN-ERROR as a
       (with-db (db hash :mode '(:writer :truncate) :engine :skip-list)
         (is (typep db 'tree-db))
         (is (typep (tree-db-engine db) 'skip-list-engine))))))
+
+(test engine-nil-is-not-given
+  "An explicit :ENGINE NIL, OPEN-TREE-DB's own default, asks for no
+type: it creates a HashDB, opens an existing one, and a truncated TreeDB
+keeps its engine (#7)."
+  (with-temp-directory (dir)
+    (let ((hash (merge-pathnames "h.vch/" dir))
+          (tree (merge-pathnames "t.vct/" dir)))
+      (with-db (db hash :engine nil)
+        (is (typep db 'hash-db)))
+      (with-db (db hash :engine nil)
+        (is (typep db 'hash-db)))
+      (with-db (db tree :type :tree :engine :skip-list)
+        (db-set db "k" "v"))
+      (with-db (db tree :mode '(:writer :truncate) :engine nil)
+        (is (typep (tree-db-engine db) 'skip-list-engine))))))

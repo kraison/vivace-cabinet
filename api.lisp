@@ -70,15 +70,14 @@ does not take for a TYPE database (#7)."
       (%signal 'invalid-argument "not keywords for a ~(~a~) database: ~{~s~^ ~}"
                type bad))))
 
-(defun open-db (path &rest args &key (type nil type-p) (engine nil engine-p)
-                                     mode &allow-other-keys)
+(defun open-db (path &rest args &key (type nil type-p) engine mode
+                                &allow-other-keys)
   "Open the database in directory PATH (a trailing / is added).  An
 existing database opens as the type it is; TYPE (:HASH by default)
 chooses what to create, and must match when given; ENGINE alone implies
 :TREE.  A writer's :TRUNCATE keeps the type and engine unless TYPE or
 ENGINE names others.  Other keywords: OPEN-HASH-DB and OPEN-TREE-DB; one
 for the other type signals INVALID-ARGUMENT."
-  (declare (ignore engine))
   (when (and type-p (not (member type '(:hash :tree))))
     (%signal 'invalid-argument "unknown database type ~s" type))
   (let* ((dir (uiop:ensure-directory-pathname (merge-pathnames path)))
@@ -87,15 +86,19 @@ for the other type signals INVALID-ARGUMENT."
          (truncating (and (listp mode) (member :writer mode)
                           (member :truncate mode)))
          ;; The type asked for: TYPE, or :TREE when only ENGINE says.
-         (asked (cond (type-p type) (engine-p :tree)))
-         (args (alexandria:remove-from-plist args :type)))
+         ;; :ENGINE NIL, OPEN-TREE-DB's own default, asks for nothing
+         ;; and is dropped (#7).
+         (asked (cond (type-p type) (engine :tree)))
+         (args (if engine
+                   (alexandria:remove-from-plist args :type)
+                   (alexandria:remove-from-plist args :type :engine))))
     (when (and found asked (not (eq found asked)) (not truncating))
       (%signal 'open-error "~a: a ~(~a~) database, not ~(~a~)"
                dir found asked))
     (let ((type (if (and truncating asked) asked (or found asked :hash))))
       (%check-keywords type args)
       (when (and truncating (eq type :tree) (eq found :tree)
-                 (not engine-p))
+                 (null engine))
         (setf args (list* :engine (%engine-kind (getf header :engine))
                           args)))
       (ecase type
