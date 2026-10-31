@@ -43,6 +43,12 @@ class FormSpans(unittest.TestCase):
         self.assertEqual(ef.form_spans(text),
                          [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5)])
 
+    def test_a_vector_literal_opens_a_form(self):
+        self.assertEqual(ef.form_spans("#(1 2)\n"), [(1, 1)])
+        self.assertEqual(ef.form_spans("#(a\nb)\n(c)\n"), [(1, 2), (3, 3)])
+        self.assertEqual(ef.form_spans("#2A((1) (2))\n#*0101\n"),
+                         [(1, 1), (2, 2)])
+
     def test_two_forms_on_one_line_is_an_error(self):
         with self.assertRaisesRegex(ef.FormError, "two forms on one line"):
             ef.form_spans("(a)\n(b) (c)\n")

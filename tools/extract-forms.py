@@ -154,12 +154,14 @@ def form_spans(text):
                     close_item()
                 elif d == "#":
                     close_item()
+                elif d == "(":
+                    depth = 1
                 elif d in "+-":
                     need += 1
                 elif d in ("", "\n"):
                     fail("# at the end of a line")
-                # Any other dispatch (#', #., #(, #x, #: ...) prefixes
-                # the item that follows.
+                # Any other dispatch (#', #., #x, #: ...) prefixes the
+                # item that follows.
             else:
                 i, line = skip_token(i, line)
                 close_item()
