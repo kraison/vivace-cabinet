@@ -180,3 +180,28 @@ leaves the cursor nowhere, not on the record the search found."
       (is-true (cursor-jump cur))
       (is (equal "c" (cursor-get-key cur :as :string))))))
 
+(def-tree-test cursor-edit-cannot-skip-a-key-put-before-it
+  "A cursor's edit finds its record and edits it under one hold of the
+database (#9).  Here the cursor's key is gone and \"e\" is next; another
+thread puts \"d\" before it, then reads \"e\".  Reading \"e\" unedited
+puts the edit after the put, so the edit must then have landed on \"d\"."
+  (with-temp-db (db)
+    (let ((misses 0))
+      (dotimes (trial 300)
+        (db-set db "c" "v")
+        (db-set db "e" "v")
+        (db-remove db "d")
+        (with-cursor (cur db)
+          (cursor-jump cur "c")
+          (db-remove db "c")
+          (let* ((seen nil)
+                 (other (bt:make-thread
+                         (lambda ()
+                           (db-set db "d" "v")
+                           (setf seen (db-get db "e" :as :string))))))
+            (is-true (cursor-set-value cur "edited"))
+            (bt:join-thread other)
+            (when (and (equal seen "v")
+                       (equal "edited" (db-get db "e" :as :string)))
+              (incf misses)))))
+      (is (zerop misses)))))
