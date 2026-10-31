@@ -117,7 +117,9 @@ A HashDB cursor moves forward only, in no useful order, as in Kyoto
 Cabinet: `cursor-jump-back` and `cursor-step-back` signal
 `not-implemented`, and `cursor-jump` with a key lands on that key's
 record. It reads the index a bucket at a time, so a record that a
-concurrent writer's bucket split moves can be seen twice or missed.
+concurrent writer's bucket split moves can be seen twice or missed, so
+a `db-merge` from a HashDB being written can store a record twice or
+miss it; under `:append`, a record stored twice is appended twice.
 
 ## Visitors and the rest of the API
 
