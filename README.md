@@ -238,8 +238,12 @@ tracing on.
 - **Growth stops at the reservation.** A database's heap cannot grow
   past `:heap-reservation` until it is reopened, and each of a HashDB's
   linear-hash files stops at 8000 MiB; the write signals
-  `reservation-exhausted` and the database stays usable. Using the
-  structures directly, bind
+  `reservation-exhausted` and the database stays usable. A B+ tree put
+  that splits a page first takes a page per level of the tree, plus one,
+  from the heap, and signals when the reservation has not got them all,
+  though the split itself may need one: the price of a put that signals
+  with the tree as it was, never half split. Using the structures
+  directly, bind
   `vivace-cabinet::*mmap-reservation-multiplier*` or
   `vivace-cabinet::*mmap-min-reservation*` before creating or opening to
   reserve more.
