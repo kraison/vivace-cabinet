@@ -171,3 +171,14 @@ files are unmapped."
                        :element-type '(unsigned-byte 8))
       (write-byte 0 s))
     (signals error (open-lhash dir))))
+
+;;; New (#5): the hash is quiet for library users.
+
+(test a-signalled-lhash-error-is-not-also-logged
+  "An error the hash signals is not written to the log as well: the
+caller gets the condition once, to handle as it likes."
+  (with-temp-lhash (h)
+    (is (equal "" (log-output
+                   (lambda ()
+                     (signals nonexistent-key-error
+                       (lhash-update h (gen-id) 1))))))))
