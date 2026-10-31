@@ -218,9 +218,12 @@ threads wait until it ends, as in Kyoto Cabinet.  T, or NIL with
 :NO-PERMISSION for a writable iteration on a reader."))
 
 (defgeneric db-scan-parallel (db visitor &key threads as)
-  (:documentation "Visit every record from THREADS threads (4) at once,
-read-only: VISITOR's answers are ignored.  An error in VISITOR is
-signalled again here."))
+  (:documentation "Visit every record from THREADS threads (4; at most
+127, as in Kyoto Cabinet) at once, read-only: VISITOR's answers are
+ignored.  VISITOR runs on new threads, which see special variables'
+global values, not the caller's bindings; BORDEAUX-THREADS's
+*DEFAULT-SPECIAL-BINDINGS* passes bindings to them.  An error in VISITOR
+is signalled again here."))
 
 (defgeneric cursor-accept (cursor visitor &key writable step as)
   (:documentation "DB-ACCEPT on the cursor's record.  With STEP, or when

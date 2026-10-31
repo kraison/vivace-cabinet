@@ -51,6 +51,9 @@ fails with :NO-PERMISSION, and one under :AUTOSYNC synchronizes after."
                                  as writable))))
       t)))
 
+(alexandria:define-constant +max-scan-threads+ 127
+  :documentation "Kyoto's cap on scan threads (kchashdb.h: scan_parallel).")
+
 (defmethod db-scan-parallel ((db database) visitor &key (threads 4)
                                                         (as :octets))
   (check-as as)
@@ -59,7 +62,8 @@ fails with :NO-PERMISSION, and one under :AUTOSYNC synchronizes after."
              threads))
   ;; The database is held throughout, so the workers read unlocked.
   (%holding (db :exclusive)
-    (let ((next (%key-batches db))
+    (let ((threads (min threads +max-scan-threads+))
+          (next (%key-batches db))
           (lock (make-lock "scan failure"))
           (failure nil)
           (workers '())

@@ -465,3 +465,55 @@ is fine."
         (is (equal "1!" (db-get db "a" :as :string)))
         (is (equal "1" (db-get other "copy" :as :string)))
         (is (= 1 (db-count db)))))))
+
+(test scan-parallel-caps-its-threads
+  "DB-SCAN-PARALLEL runs at most 127 threads, as Kyoto Cabinet does
+(#8).  Each worker's first visit waits for 128 workers to show up, or a
+second, before going on, so an uncapped scan of 200 shows over 127."
+  (with-temp-db (db)
+    (dotimes (i 5000)
+      (db-set db (keyed i) "v"))
+    (let ((seen (make-hash-table :test 'eq))
+          (lock (bt:make-lock))
+          (deadline (+ (get-internal-real-time)
+                       internal-time-units-per-second)))
+      (flet ((workers ()
+               (bt:with-lock-held (lock)
+                 (hash-table-count seen))))
+        (db-scan-parallel db (lambda (k v)
+                               (declare (ignore k v))
+                               (bt:with-lock-held (lock)
+                                 (setf (gethash (bt:current-thread) seen) t))
+                               (loop until (or (>= (workers) 128)
+                                               (> (get-internal-real-time)
+                                                  deadline))
+                                     do (sleep 0.01))
+                               :nop)
+                          :threads 200)
+        (is (<= (workers) 127) "~d workers" (workers))))))
+
+(defvar *scan-probe* :global)
+
+(test scan-parallel-workers-take-default-special-bindings
+  "A scan's workers see a special variable's global value, not the
+caller's binding, unless BORDEAUX-THREADS's *DEFAULT-SPECIAL-BINDINGS*
+carries it, as the README says."
+  (with-temp-db (db)
+    (dotimes (i 20)
+      (db-set db (keyed i) "v"))
+    (let ((seen '())
+          (lock (bt:make-lock)))
+      (flet ((note (k v)
+               (declare (ignore k v))
+               (bt:with-lock-held (lock)
+                 (pushnew *scan-probe* seen))
+               :nop))
+        (let ((*scan-probe* :bound))
+          (db-scan-parallel db #'note)
+          (is (equal '(:global) seen))
+          (setf seen '())
+          (let ((bt:*default-special-bindings*
+                  (acons '*scan-probe* :carried
+                         bt:*default-special-bindings*)))
+            (db-scan-parallel db #'note))
+          (is (equal '(:carried) seen)))))))

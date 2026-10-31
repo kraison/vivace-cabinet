@@ -162,8 +162,11 @@ fail with `:no-permission`, even with no records.
 `db-iterate` visits every record while holding the whole database:
 other threads wait until it ends, as in Kyoto Cabinet, and get their
 turn before the next whole-database call.
-`db-scan-parallel` visits every record from `:threads` threads (4) at
-once, read-only, also holding the database. `cursor-accept` visits a
+`db-scan-parallel` visits every record from `:threads` threads (4; at
+most 127, as in Kyoto Cabinet) at once, read-only, also holding the
+database. Its visitor runs on new threads, so it sees special variables'
+global values, not the caller's bindings;
+`bordeaux-threads:*default-special-bindings*` passes bindings to them. `cursor-accept` visits a
 cursor's record, and with `:step t` moves on.
 
 `db-match-prefix`, `db-match-regex` (CL-PPCRE syntax, matched against
