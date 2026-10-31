@@ -393,3 +393,24 @@ account needs."
         (db-synchronize db))
       (is (equal (file-mode-string plain)
                  (file-mode-string (merge-pathnames "header.dat" path)))))))
+
+(test reservation-exhaustion-leaves-a-chain-whole
+  "A DB-SET that exhausts the reservation while its key's bucket already
+holds a chain changes nothing (#6): the count stays, the key is absent
+and the chain's records read back, whether the key was new or present."
+  (with-temp-directory (dir)
+    (let ((*key-digest* (constant-digest 7))
+          (big (make-string 2000000 :initial-element #\x)))
+      (with-db (db (merge-pathnames "rc.vch/" dir)
+                   :heap-size (* 1024 1024) :heap-reservation 1)
+        (db-set db "a" "1")
+        (db-set db "b" "2")
+        (signals reservation-exhausted (db-set db "big" big))
+        (is (= 2 (db-count db)))
+        (is (null (db-get db "big")))
+        (is (eq :no-record (db-error db)))
+        (is (equal "1" (db-get db "a" :as :string)))
+        (is (equal "2" (db-get db "b" :as :string)))
+        (signals reservation-exhausted (db-set db "a" big))
+        (is (= 2 (db-count db)))
+        (is (equal "1" (db-get db "a" :as :string)))))))
