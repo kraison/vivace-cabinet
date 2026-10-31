@@ -17,7 +17,8 @@
 (defun %tc-search (c fn)
   "Call FN on C's database's engine, holding the database shared: FN's
 (values key value), then the clear count read under the same hold (#9).
-A count the cursor's differs from means a clear came between."
+A count the cursor's differs from means a clear came between.  A move
+asks the engine for the key alone, so it reads no value (#7)."
   (let ((db (%tc-db c)))
     (with-read-lock ((%db-lock db))
       (%check-open db)
@@ -36,7 +37,7 @@ NIL with :NO-RECORD."
 (defun %tc-jump (c fn key backward)
   "Put C at the record (FN engine KEY NIL) finds."
   (multiple-value-bind (k v clears)
-      (%tc-search c (lambda (e) (funcall fn e key nil)))
+      (%tc-search c (lambda (e) (funcall fn e key nil nil)))
     (declare (ignore v))
     (%tc-place c k backward clears)))
 
@@ -58,7 +59,7 @@ is nowhere, or when the database was cleared since C was placed."
 
 (defmethod %cursor-pass ((c tree-cursor) key)
   (let ((fn (if (%tc-backward c) #'engine-floor #'engine-ceiling)))
-    (%tc-move c (lambda (e) (funcall fn e key t)) (%tc-backward c))))
+    (%tc-move c (lambda (e) (funcall fn e key t nil)) (%tc-backward c))))
 
 (defmethod cursor-jump ((c tree-cursor) &optional key)
   (%tc-jump c #'engine-ceiling (and key (to-octets key)) nil))
@@ -69,12 +70,12 @@ is nowhere, or when the database was cleared since C was placed."
 (defmethod cursor-step ((c tree-cursor))
   ;; Past the record a read would land on, found under the same hold.
   (%tc-move c (lambda (e)
-                (let ((k (engine-ceiling e (%tc-key c) nil)))
-                  (and k (engine-ceiling e k t))))
+                (let ((k (engine-ceiling e (%tc-key c) nil nil)))
+                  (and k (engine-ceiling e k t nil))))
             nil))
 
 (defmethod cursor-step-back ((c tree-cursor))
-  (%tc-move c (lambda (e) (engine-floor e (%tc-key c) t)) t))
+  (%tc-move c (lambda (e) (engine-floor e (%tc-key c) t nil)) t))
 
 (defmethod cursor-get ((c tree-cursor) &key (as :octets) step)
   (check-as as)
@@ -114,7 +115,7 @@ is nowhere, or when the database was cleared since C was placed."
       (with-lock-held (lock)
         (unless done
           (let ((batch (loop repeat 256
-                             for k = (engine-ceiling e last (and last t))
+                             for k = (engine-ceiling e last (and last t) nil)
                              while k
                              collect (setf last k))))
             (unless batch

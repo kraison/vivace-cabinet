@@ -196,17 +196,24 @@ search the subtrees left of the descent's path, nearest first."
 (defmethod engine-count ((e bplus-engine))
   (bplus-tree-count (%bpe-tree e)))
 
-(defmethod engine-ceiling ((e bplus-engine) key strict)
+(defun %bpe-entry (e k sval value-p)
+  "The entry K and SVAL as the engine returns it: (values K value), or
+K alone when VALUE-P is NIL, so a step reads no value (#7)."
+  (cond ((null k) nil)
+        (value-p (values k (%bpe-decode e sval)))
+        (t k)))
+
+(defmethod engine-ceiling ((e bplus-engine) key strict &optional (value-p t))
   (let ((tree (%bpe-tree e)))
     (with-bpt-read-lock (tree)
       (multiple-value-bind (k sval) (%bpt-ceiling tree key strict)
-        (and k (values k (%bpe-decode e sval)))))))
+        (%bpe-entry e k sval value-p)))))
 
-(defmethod engine-floor ((e bplus-engine) key strict)
+(defmethod engine-floor ((e bplus-engine) key strict &optional (value-p t))
   (let ((tree (%bpe-tree e)))
     (with-bpt-read-lock (tree)
       (multiple-value-bind (k sval) (%bpt-floor tree key strict)
-        (and k (values k (%bpe-decode e sval)))))))
+        (%bpe-entry e k sval value-p)))))
 
 (defmethod engine-address ((e bplus-engine))
   (%bpt-address (%bpe-tree e)))

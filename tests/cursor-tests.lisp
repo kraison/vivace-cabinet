@@ -205,3 +205,24 @@ puts the edit after the put, so the edit must then have landed on \"d\"."
                        (equal "edited" (db-get db "e" :as :string)))
               (incf misses)))))
       (is (zerop misses)))))
+
+(test (cursor-moves-read-no-values :suite api-suite)
+  "Jumps, steps and the move after a read with :STEP read keys only, so
+a walk over values kept out of line reads each value once, in the get,
+not again in the step (#7)."
+  (with-temp-directory (dir)
+    (with-db (db (merge-pathnames "c.vct/" dir) :type :tree)
+      (dotimes (i 20)
+        (db-set db (keyed i) (make-string 2000 :initial-element #\v)))
+      (with-cursor (cur db)
+        (is (= 0 (calls-to 'record-value
+                           (lambda ()
+                             (cursor-jump cur)
+                             (loop while (cursor-step cur))
+                             (cursor-jump-back cur)
+                             (loop while (cursor-step-back cur))))))
+        (cursor-jump cur)
+        (is (= 20 (calls-to
+                   'record-value
+                   (lambda ()
+                     (loop while (cursor-get-value cur :step t))))))))))
