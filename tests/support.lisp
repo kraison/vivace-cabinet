@@ -164,3 +164,12 @@ True when all ended in time."
   (let ((stuck (remove-if-not #'bt:thread-alive-p threads)))
     (mapc #'bt:destroy-thread stuck)
     (null stuck)))
+
+(defun log-output (thunk)
+  "What log4cl writes while THUNK runs.  Its console appender resolves
+*DEBUG-IO* at each write, so a binding captures it."
+  (let* ((out (make-string-output-stream))
+         (*debug-io* (make-two-way-stream (make-string-input-stream "")
+                                          out)))
+    (funcall thunk)
+    (get-output-stream-string out)))

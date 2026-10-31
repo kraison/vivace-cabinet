@@ -743,9 +743,12 @@ root and drop a level."
         t))))
 
 (defun bpt-remove (tree dkey &optional (sval nil sval-p) value-equal)
-  "Remove DKEY from its leaf.  With SVAL given, only remove when the stored value
-also matches (via VALUE-EQUAL or the tree's).  Returns T if a key was removed.
-Merges underfull pages on the way up and collapses a degenerate root."
+  "Remove DKEY from its leaf.  With SVAL given, only remove when
+VALUE-EQUAL, called with SVAL and the stored value's octets, is true.
+It defaults to the tree's VALUE-EQUAL, which then gets octets too, so
+a caller comparing values passes its own, as REMOVE-FROM-SKIP-LIST
+does.  Returns T if a key was removed.  Merges underfull pages on the
+way up and collapses a degenerate root."
   (with-bpt-write-lock (tree)
     (if sval-p
         (%bpt-remove-top tree dkey sval value-equal)
@@ -863,10 +866,14 @@ entry with key >= DKEY in the leaf that would hold DKEY."
 (defmethod remove-from-skip-list ((tree bplus-tree) key
                                   &optional (value nil value-p))
   (if value-p
-      ;; Stored values are compared serialized: as octets.  EQUAL, the
-      ;; tree's default VALUE-EQUAL, never matches two octet vectors.
-      (bpt-remove tree key (funcall (%bpt-value-serializer tree) value)
-                  #'equalp)
+      ;; The tree's VALUE-EQUAL compares values, as the skip list's
+      ;; does, so deserialize the stored one first (#5).
+      (let ((value-equal (%bpt-value-equal tree))
+            (deserialize (%bpt-value-deserializer tree)))
+        (bpt-remove tree key value
+                    (lambda (value stored)
+                      (funcall value-equal value
+                               (funcall deserialize stored)))))
       (bpt-remove tree key)))
 
 (defmethod find-in-skip-list ((tree bplus-tree) key &optional preds succs)

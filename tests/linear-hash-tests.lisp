@@ -149,10 +149,10 @@ slot must describe where the lhash was OPENED from."
         (uiop:copy-file f (merge-pathnames (file-namestring f) copy)))
       (let ((h2 (open-lhash copy)))
         (is (equal (namestring copy)
-                   (namestring (vivace-cabinet::%lhash-location h2)))
+                   (namestring (%lhash-location h2)))
             "the restored struct must record where it was opened from")
         (is (= 7 (lhash-get h2 k)))
-        (vivace-cabinet::delete-lhash h2))
+        (delete-lhash h2))
       (is (not (probe-file (merge-pathnames "table.dat" copy)))
           "the copy's files are gone")
       (is (probe-file (merge-pathnames "table.dat" orig))
@@ -171,3 +171,14 @@ files are unmapped."
                        :element-type '(unsigned-byte 8))
       (write-byte 0 s))
     (signals error (open-lhash dir))))
+
+;;; New (#5): the hash is quiet for library users.
+
+(test a-signalled-lhash-error-is-not-also-logged
+  "An error the hash signals is not written to the log as well: the
+caller gets the condition once, to handle as it likes."
+  (with-temp-lhash (h)
+    (is (equal "" (log-output
+                   (lambda ()
+                     (signals nonexistent-key-error
+                       (lhash-update h (gen-id) 1))))))))

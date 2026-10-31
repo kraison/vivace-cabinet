@@ -52,7 +52,6 @@
   (declare (type word offset))
   (declare (type (integer 0 255) byte))
   (unless (>= offset (memory-data-offset memory))
-    (log:error "SEGV: Tried to write byte ~S at unsafe position ~S in ~S" byte offset memory)
     (error "SEGV: Tried to write byte ~S at unsafe position ~S in ~S" byte offset memory))
   ;;(log:debug "SET-BYTE: ~A ADDR ~A TO ~A" (memory-location memory) offset byte)
   ;;(setf (cffi:mem-aref (m-pointer (memory-mmap memory)) :unsigned-char offset) byte))
@@ -73,7 +72,6 @@
 (defmethod serialize-uint64 ((memory memory) int offset)
   (declare (type word int offset))
   (unless (>= offset (memory-data-offset memory))
-    (log:error "SEGV: Tried to serialize-uint64 ~S at unsafe position ~S in ~S" int offset memory)
     (error "SEGV: Tried to serialize-uint64 ~S at unsafe position ~S in ~S" int offset memory))
   ;;(log:debug "MEMORY: SERIALIZING UINT64 ~A TO ADDR ~A" int offset)
   (serialize-uint64 (memory-mmap memory) int offset))
@@ -108,7 +106,7 @@
 
 (defun grow-memory (memory length)
   (let ((num-extents (ceiling (/ length (memory-extent-size memory)))))
-    (log:info "GROWING MEMORY BY ~A EXTENTS" num-extents)
+    (log:debug "GROWING MEMORY BY ~A EXTENTS" num-extents)
     (extend-mapped-file (memory-mmap memory)
                         (* num-extents (memory-extent-size memory)))
     (setf (memory-size memory)
@@ -244,7 +242,6 @@
 (defun memory-magic-byte-corrupt-p (memory)
   (let ((byte (get-byte (memory-mmap memory) +memory-magic-byte-offset+)))
     (unless (= +data-magic-byte+ byte)
-      (log:error "SEGV: ~A magic-byte corrupted: 0x~X" (memory-location memory) byte)
       byte)))
 
 (defun open-memory (location &key (extent-size (* 1024 1024 100))
@@ -259,9 +256,10 @@ read a pre-MVCC graph for logical backup."
                       :extent-size extent-size
                       :lock (make-rw-lock)
                       :mmap (mmap-file location :create-p nil))))
-    (when (memory-magic-byte-corrupt-p memory)
-      (munmap-file (memory-mmap memory))
-      (error "~A is not a memory file!" location))
+    (let ((byte (memory-magic-byte-corrupt-p memory)))
+      (when byte
+        (munmap-file (memory-mmap memory))
+        (error "~A is not a memory file: magic byte 0x~X" location byte)))
     (let ((found (get-byte (memory-mmap memory) +memory-storage-version-offset+)))
       (unless (member found accept-versions)
         (munmap-file (memory-mmap memory))
@@ -277,15 +275,11 @@ Older graphs must be migrated first -- see MIGRATE-GRAPH (snapshot + replay)."
   ;; allocation-data-offset is the beginning of the user-accessible
   ;; portion of the data block
   (unless (>= allocation-data-offset (memory-data-offset memory))
-    (log:error "SEGV: Unsafe call to free: pointer ~S ~S"
-               allocation-data-offset memory)
     (error "SEGV: Cannot free pointer ~S" allocation-data-offset))
   (let ((allocation-offset (- allocation-data-offset +allocation-header-size+)))
     (multiple-value-bind (size free-p)
         (deserialize-header (memory-mmap memory) allocation-offset)
       (when free-p
-        (log:error "FREE on already-freed allocation at ~S"
-                   allocation-offset)
         (error "FREE on an already-freed allocation at ~S"
                allocation-offset))
       ;;(log:debug "ADDING ~S TO ~A FREE LIST, SIZE ~S"
@@ -325,8 +319,6 @@ Older graphs must be migrated first -- see MIGRATE-GRAPH (snapshot + replay)."
            (or (maybe-allocate-from-free-list memory data-size)
                (allocate-from-memory memory data-size))))
       (unless (>= allocation-offset (memory-data-offset memory))
-        (log:error "SEGV: Tried to allocate at unsafe position ~S in ~S"
-                   allocation-offset memory)
         (error "Tried to allocate at unsafe position ~S in ~S"
                allocation-offset memory))
       (values allocation-offset data-size))))

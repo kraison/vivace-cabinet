@@ -727,12 +727,8 @@ from -- never the one recorded at creation (GH #143)."
     ;; read-lhash-level, re-acquiring the split-lock while a writer may
     ;; already be queued — new reads block, the queued writer never drains
     ;; R=1 → deadlock.
-    (handler-case
-        (when split-p
-          (split-lhash lhash))
-      (error (c)
-        (log:error "LHASH ERROR IN ~A SPLIT(): ~A" lhash c)
-        (error c)))
+    (when split-p
+      (split-lhash lhash))
     (read-lhash-count lhash)))
 
 (defun %lhash-update (lhash key val)
@@ -742,12 +738,8 @@ from -- never the one recorded at creation (GH #143)."
                         (bucket-offset lhash bucket) key val))))
 
 (defun lhash-update (lhash key val)
-  (handler-case
-      (with-read-lock ((%lhash-split-lock lhash))
-        (%lhash-update lhash key val))
-    (error (c)
-      (log:error "LHASH ERROR IN ~A UPDATE-IN-BUCKET(~A,~A): ~A" lhash key val c)
-      (error c))))
+  (with-read-lock ((%lhash-split-lock lhash))
+    (%lhash-update lhash key val)))
 
 (defun %lhash-custom-update (lhash fn key)
   (let ((bucket (hash lhash (%lhash-level lhash) key)))
@@ -757,13 +749,8 @@ from -- never the one recorded at creation (GH #143)."
                                fn key))))
 
 (defun lhash-custom-update (lhash fn key)
-  (handler-case
-      (with-read-lock ((%lhash-split-lock lhash))
-        (%lhash-custom-update lhash fn key))
-    (error (c)
-      (log:error "LHASH ERROR IN ~A CUSTOM-UPDATE-IN-BUCKET(~A,~A): ~A"
-                 lhash fn key c)
-      (error c))))
+  (with-read-lock ((%lhash-split-lock lhash))
+    (%lhash-custom-update lhash fn key)))
 
 (defun %lhash-get (lhash key)
   (let ((bucket (hash lhash (%lhash-level lhash) key)))
@@ -772,12 +759,8 @@ from -- never the one recorded at creation (GH #143)."
                         (bucket-offset lhash bucket) key))))
 
 (defun lhash-get (lhash key)
-  (handler-case
-      (with-read-lock ((%lhash-split-lock lhash))
-        (%lhash-get lhash key))
-    (error (c)
-      (log:error "ERROR IN ~A LHASH-GET(~A): ~A" lhash key c)
-      (error c))))
+  (with-read-lock ((%lhash-split-lock lhash))
+    (%lhash-get lhash key)))
 
 ;; Generic so a memory-graph's MEM-TABLE (used as the vertex/edge table) can
 ;; supply its own removal -- e.g. the peer scope-exit purge (PEER-PURGE-NODE)
@@ -785,15 +768,11 @@ from -- never the one recorded at creation (GH #143)."
 (defgeneric lhash-remove (table key))
 
 (defmethod lhash-remove ((lhash lhash) key)
-  (handler-case
-      (with-read-lock ((%lhash-split-lock lhash))
-        (let* ((bucket (hash lhash (%lhash-level lhash) key)))
-          (with-locked-hash-bucket (lhash bucket)
-            (remove-from-bucket lhash (%lhash-table lhash)
-                                (bucket-offset lhash bucket) key))))
-    (error (c)
-      (log:error "ERROR IN ~A LHASH-REMOVE(~A): ~A" lhash key c)
-      (error c)))
+  (with-read-lock ((%lhash-split-lock lhash))
+    (let* ((bucket (hash lhash (%lhash-level lhash) key)))
+      (with-locked-hash-bucket (lhash bucket)
+        (remove-from-bucket lhash (%lhash-table lhash)
+                            (bucket-offset lhash bucket) key))))
   (read-lhash-count lhash))
 
 ;; Generic so an alternative table backend (the in-RAM MEM-TABLE of a

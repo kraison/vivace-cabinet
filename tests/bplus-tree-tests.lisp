@@ -113,9 +113,10 @@ root; the tree stays correct and usable throughout."
            (heap (create-memory path (* 1024 1024 64)))
            (tree (make-integer-bplus-tree heap))
            (address (%bpt-address tree)))
-      (dotimes (k 3000)
-        (add-to-skip-list tree k (format nil "v~a" k)))
-      (close-memory heap)
+      (unwind-protect
+           (dotimes (k 3000)
+             (add-to-skip-list tree k (format nil "v~a" k)))
+        (close-memory heap))
       (let* ((heap2 (open-memory path))
              (tree2 (apply #'open-bplus-tree :address address :heap heap2
                            (integer-bplus-tree-args))))
@@ -141,3 +142,17 @@ after 12, 9 and 6 inserts (#4)."
         (is (equal big (tree-value tree 60)))
         (is (equal (loop for k from 1 to 60 collect k)
                    (cursor-keys (make-cursor tree))))))))
+
+(test bplus-remove-by-value-uses-value-equal
+  "A value-qualified remove compares values with the tree's VALUE-EQUAL,
+as the skip list's does, not their octets (#5)."
+  (with-temp-memory (heap)
+    (let ((tree (apply #'make-bplus-tree :heap heap
+                       :value-equal 'string-equal
+                       (integer-bplus-tree-args))))
+      (add-to-skip-list tree 1 "value")
+      (is (null (remove-from-skip-list tree 1 "other")))
+      (is (equal "value" (tree-value tree 1)))
+      (is-true (remove-from-skip-list tree 1 "VALUE"))
+      (is (null (tree-value tree 1)))
+      (is (= 0 (bplus-tree-count tree))))))

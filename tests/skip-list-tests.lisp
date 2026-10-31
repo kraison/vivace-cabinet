@@ -327,19 +327,19 @@ weak entry.  Clearing the hash makes that cold read -- and hence this invariant
     (let ((sl (make-integer-skip-list heap)))
       (add-to-skip-list sl 42 "forty-two")
       ;; stand in for the weak cache having been collected
-      (clrhash (vivace-cabinet::%sl-node-cache sl))
+      (clrhash (%sl-node-cache sl))
       (let* ((node (find-in-skip-list sl 42))
-             (addr (vivace-cabinet::%sn-addr node))
-             (idx (vivace-cabinet::%node-cache-vec-index addr)))
-        (is (eq node (aref (vivace-cabinet::%sl-node-cache-vec sl) idx))
+             (addr (%sn-addr node))
+             (idx (%node-cache-vec-index addr)))
+        (is (eq node (aref (%sl-node-cache-vec sl) idx))
             "precondition: a cold read must populate the direct-mapped cache")
         (remove-from-skip-list sl 42)
         ;; NB: compute the boolean OUTSIDE the IS.  FiveAM destructures
         ;; (is (not (f ...))) and evaluates the inner forms separately to build
         ;; its failure message, which defeats AND's short-circuit -- so an
         ;; (is (not (and cached ...))) would call %SN-ADDR on NIL.
-        (let* ((cached (aref (vivace-cabinet::%sl-node-cache-vec sl) idx))
-               (stale-p (and cached (= (vivace-cabinet::%sn-addr cached) addr))))
+        (let* ((cached (aref (%sl-node-cache-vec sl) idx))
+               (stale-p (and cached (= (%sn-addr cached) addr))))
           (is (null stale-p)
               "address ~D was freed but is still in the direct-mapped cache; a ~
 node later allocated at that address would read back this stale entry" addr))
@@ -354,13 +354,13 @@ node caching -- which the profiler's cold-read workloads rely on."
     (let ((sl (make-integer-skip-list heap)))
       (add-to-skip-list sl 7 "seven")
       (is (string= "seven" (sl-find-value sl 7)))
-      (let ((vivace-cabinet::*cache-enabled* nil))
+      (let ((*cache-enabled* nil))
         (is (string= "seven" (sl-find-value sl 7))
             "a read with caching disabled must still return the right value")
         ;; and it must not have been served from, or written to, the vec cache
-        (is (null (aref (vivace-cabinet::%sl-node-cache-vec sl)
-                        (vivace-cabinet::%node-cache-vec-index
-                         (vivace-cabinet::%sn-addr (find-in-skip-list sl 7)))))
+        (is (null (aref (%sl-node-cache-vec sl)
+                        (%node-cache-vec-index
+                         (%sn-addr (find-in-skip-list sl 7)))))
             "a read with caching disabled populated the direct-mapped cache")))))
 
 (test skip-list-caches-one-node-per-address

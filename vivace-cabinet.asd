@@ -133,7 +133,9 @@ and on vivace-cabinet."
                (:file "bulk-tests")
                (:file "match-tests")
                (:file "admin-tests")
-               (:file "snapshot-tests"))
+               (:file "snapshot-tests")
+               ;; Last: checks the files above against the library.
+               (:file "imports"))
   :perform (test-op (o c)
              (unless (uiop:symbol-call
                       :fiveam :run!
