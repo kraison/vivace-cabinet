@@ -11,8 +11,7 @@
     (list :engine (%engine-kind (%engine-code db)))))
 
 (defmethod db-status ((db database))
-  (with-shared-lock ((%db-lock db))
-    (%check-open db)
+  (%holding (db :shared)
     (list* :type (if (typep db 'tree-db) :tree :hash)
            :path (db-path db)
            :count (%record-count db)
@@ -23,13 +22,13 @@
 
 (defmethod db-occupy ((db database) fn &key (writable t))
   (flet ((run ()
-           (%check-open db)
-           (if (funcall fn (db-path db) (%record-count db) (%size db))
+           (if (%visiting (db)
+                 (funcall fn (db-path db) (%record-count db) (%size db)))
                t
                (%fail db :logic))))
     (if writable
-        (with-exclusive-lock ((%db-lock db)) (run))
-        (with-shared-lock ((%db-lock db)) (run)))))
+        (%holding (db :exclusive) (run))
+        (%holding (db :shared) (run)))))
 
 ;;; Copying
 
@@ -83,8 +82,7 @@ linear hash's index files are mostly holes."
     (when (or (uiop:subpathp to dir)
               (and (probe-file dir) (uiop:subpathp to (truename dir))))
       (%signal 'invalid-argument "~a is inside the database ~a" to dir))
-    (with-exclusive-lock ((%db-lock db))
-      (%check-open db)
+    (%holding (db :exclusive)
       (when (%db-writable-p db)
         (%sync-storage db nil)
         (%write-header db :open t))

@@ -133,7 +133,9 @@ keeps it, `:remove` removes it, and anything else is the new value.
 `db-accept` visits one key, and `db-accept-bulk` a list of keys in order,
 atomically for all of them. `:writable nil` visits without changing
 anything, the only kind of visit a reader allows. A visitor runs while
-the database holds its key's lock, so it must not use the database.
+the database holds its key's lock, so it must not use the database: a
+call on it from the visitor's thread signals `invalid-argument` instead
+of waiting for itself. Another database is fine.
 
 `db-cas` stores a new value only when the old one is as given (NIL: the
 key must be absent; a new value of NIL removes the record).

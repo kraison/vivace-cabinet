@@ -55,8 +55,7 @@ holds the database lock."
 (defmacro %with-hash-cursor ((db c) &body body)
   "Run BODY with DB bound to C's database, holding its lock shared."
   `(let ((,db (%hc-db ,c)))
-     (with-shared-lock ((%db-lock ,db))
-       (%check-open ,db)
+     (%holding (,db :shared)
        ,@body)))
 
 (defmethod cursor-jump ((c hash-cursor) &optional key)

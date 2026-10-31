@@ -162,8 +162,9 @@ afterwards."
   (:documentation "Call VISITOR with KEY and its value (NIL if absent)
 and, when WRITABLE (the default), apply its answer: NIL or :NOP keeps
 the record, :REMOVE removes it, anything else is the new value.  The
-visit is atomic for KEY; VISITOR must not use the database.  T, or NIL
-with :NO-PERMISSION for a writable visit on a reader."))
+visit is atomic for KEY; VISITOR must not use the database, and a call
+on it signals INVALID-ARGUMENT.  T, or NIL with :NO-PERMISSION for a
+writable visit on a reader."))
 
 (defgeneric db-accept-bulk (db keys visitor &key writable as)
   (:documentation "DB-ACCEPT for each of KEYS in order, atomically for
@@ -246,7 +247,7 @@ characters, else bytes."))
   (:documentation "Call FN with DB's path, record count and size while
 holding DB: exclusively when WRITABLE (the default), else shared with
 other operations.  T, or NIL with :LOGIC when FN returns NIL.  FN must
-not use DB."))
+not use DB; a call on it signals INVALID-ARGUMENT."))
 
 (defgeneric db-copy (db dest)
   (:documentation "Copy DB's files to DEST, a directory that must not
