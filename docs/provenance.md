@@ -5,11 +5,13 @@ Code under `substrate/` and `structures/` is copied from
 `853df62` (branch `experiment`, 2026-10-07), by `tools/extract-forms.py`,
 which copies whole top-level forms by their start line. Each copied file
 names its source in its first line. vivace-graph itself is not changed.
-Until #5 the tool dropped every comment not directly above a form, so
-a copy made before then lacks its source's section dividers and
-trailing notes; the two headers with design notes, rw-lock.lisp's and
-cl-store-ecl.lisp's, were put back from vivace-graph master (4d6bf30),
-whose forms are those copied.
+A whole-file copy (`--except -`) keeps every comment; any other copy
+keeps the file's header and the comments directly above the forms it
+keeps, and drops the rest, such as section dividers between forms.
+Until #5 every copy dropped those, so a whole-file copy made before
+then lacks its source's dividers and trailing notes; the two headers
+with design notes, rw-lock.lisp's and cl-store-ecl.lisp's, were put
+back from vivace-graph master (4d6bf30), whose forms are those copied.
 
 | vivace-cabinet file | vivace-graph source | What was copied |
 |---|---|---|

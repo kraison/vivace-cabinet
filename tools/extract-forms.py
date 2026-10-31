@@ -8,7 +8,8 @@ LINES is a comma-separated list of 1-based form start lines, or "-".
 form's start is its #+/#- line when it has one.  A ;-comment block
 directly above a form travels with it, and the file's header (the
 comments before its first form) is always kept; "--except -" copies
-the whole file, free-standing comments included.  (in-package ...)
+the whole file, every comment included.  Any other copy drops the
+free-standing comments after its header.  (in-package ...)
 forms are dropped; OUT starts with a provenance line and (in-package
 #:vivace-cabinet).  It is an error when a LINE is not a form start,
 two forms share a line, a form is still open at the end of the file,
@@ -200,11 +201,13 @@ def extract(text, path, rev, mode, wanted):
             f" {wanted}).", ";;;; See docs/provenance.md.", "",
             "(in-package #:vivace-cabinet)", ""]
     if forms and not dropped:
-        # The whole file: every comment stays where it was.
-        body = [lines[l - 1] for l in range(1, forms[-1][1] + 1)
+        # The whole file: every comment stays where it was, to the end.
+        body = [lines[l - 1] for l in range(1, len(lines) + 1)
                 if l not in pkg_lines]
         while body and not body[0].strip():
             body.pop(0)
+        while body and not body[-1].strip():
+            body.pop()
         parts = ["\n".join(body)]
     else:
         first = min([with_comments(lines, s) for s, _ in forms],

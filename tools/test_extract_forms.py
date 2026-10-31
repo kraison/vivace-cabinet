@@ -111,6 +111,13 @@ class Extract(unittest.TestCase):
                       ";; Above b.\n(defun b ())\n\n(defun c ())\n", out)
         self.assertNotIn(";;; ---- section", copy(self.TEXT, "--except", "6"))
 
+    def test_a_whole_file_copy_keeps_comments_after_the_last_form(self):
+        text = self.TEXT + "\n;;;; Note: after the last form.\n\n\n"
+        out = copy(text)
+        self.assertTrue(out.endswith(
+            "(defun c ())\n\n;;;; Note: after the last form.\n"))
+        self.assertNotIn("Note:", copy(text, "--except", "6"))
+
 
 if __name__ == "__main__":
     unittest.main()
