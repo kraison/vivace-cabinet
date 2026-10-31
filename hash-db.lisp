@@ -87,8 +87,9 @@ records if a writer left them open."
                            (heap-reservation (* 64 1024 1024 1024)))
   "Open the HashDB in DIR.  MODE holds :READER or :WRITER, and any of
 :CREATE, :TRUNCATE, :AUTOSYNC.  BUCKETS and MAX-LOCKS tune the linear
-hash; HEAP-SIZE is the heap's first size; HEAP-RESERVATION is the address
-space the heap may grow into before it must be reopened."
+hash and HEAP-SIZE is the heap's first size: all three apply only when
+the database is created (#6).  HEAP-RESERVATION, the address space the
+heap may grow into before it must be reopened, applies at every open."
   (%check-mode mode)
   (%check-count :buckets buckets 1)
   (%check-count :max-locks max-locks 1)

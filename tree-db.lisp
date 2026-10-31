@@ -82,10 +82,10 @@ reader's is mapped read-only."
                            (heap-size (* 64 1024 1024))
                            (heap-reservation (* 64 1024 1024 1024)))
   "Open the TreeDB in DIR.  ENGINE is :BPLUS-TREE (the default when
-creating) or :SKIP-LIST; PAGE-SIZE (1024 to 32768) applies to a new B+
-tree.  COMPARATOR, a strict less-than on octet vectors, is not stored:
-pass the same one at every open.  MODE and the heap keywords are as for
-OPEN-HASH-DB."
+creating) or :SKIP-LIST; PAGE-SIZE (1024 to 32768) and HEAP-SIZE apply
+only to a new database.  COMPARATOR, a strict less-than on octet
+vectors, is not stored: pass the same one at every open.  MODE and
+HEAP-RESERVATION are as for OPEN-HASH-DB."
   (%check-mode mode)
   (unless (member engine '(nil :bplus-tree :skip-list))
     (%signal 'invalid-argument "unknown TreeDB engine ~s" engine))

@@ -31,12 +31,15 @@ whose files it may not write.
 
 `open-db` takes `:mode`, a list of `:reader` or `:writer` plus any of
 `:create`, `:truncate`, `:autosync` (default `(:writer :create)`), and
-tuning keywords: `:buckets` and `:max-locks` for the index, `:heap-size`,
-and `:heap-reservation` (default 64 GiB of address space the heap may
-grow into in one session). A writer's `:truncate` empties the database,
-or discards one left incomplete by a crash while creating; opening an
-incomplete database otherwise signals `open-error`, as does opening one
-whose files are shorter than their contents say.
+tuning keywords. `:buckets` and `:max-locks` for the index and
+`:heap-size` apply when the database is created (or truncated) and are
+ignored at later opens, which read them from the files;
+`:heap-reservation` (default 64 GiB of address space the heap may grow
+into in one session) applies at every open. A writer's `:truncate`
+empties the database, or discards one left incomplete by a crash while
+creating; opening an incomplete database otherwise signals
+`open-error`, as does opening one whose files are shorter than their
+contents say.
 
 `db-synchronize` flushes the files to the operating system and writes
 the header, which holds the record count; with `:hard t` it forces both
