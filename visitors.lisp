@@ -89,11 +89,13 @@ fails with :NO-PERMISSION, and one under :AUTOSYNC synchronizes after."
         (error failure))
       t)))
 
-(defun %cursor-edit (c visit &key (writable t))
-  "Visit C's current record with VISIT, a function of its key and value
-as octets that answers as a visitor does; retried if another thread
-removes the record first.  The record's (values key value), or NIL with
-the reason."
+(defgeneric %cursor-edit (c visit &key writable)
+  (:documentation "Visit C's current record with VISIT, a function of
+its key and value as octets that answers as a visitor does; retried if
+another thread removes the record first.  The record's (values key
+value), or NIL with the reason."))
+
+(defmethod %cursor-edit (c visit &key (writable t))
   (let ((db (%cursor-db c)))
     (loop
       (let ((k (%cursor-current c))
@@ -108,6 +110,48 @@ the reason."
           (return nil))
         (when old
           (return (values k old)))))))
+
+(defmethod %cursor-edit ((c tree-cursor) visit &key (writable t))
+  ;; The record is found and visited under one hold of the database, as
+  ;; by Kyoto's single accept: a key another thread puts before it
+  ;; meanwhile draws the edit to itself, not past it (#9).
+  (let ((db (%tc-db c))
+        (from (%tc-key c)))
+    (if (null from)
+        (%fail db :no-record)
+        (%accepting (db writable)
+          (with-read-lock ((%db-lock db))
+            (%check-open db)
+            (let ((e (tree-db-engine db)))
+              (flet ((edit (k)
+                       ;; Under K's stripe.  (values done key value):
+                       ;; done when K is still the first record at or
+                       ;; after FROM, else the record now there to try.
+                       (multiple-value-bind (now old)
+                           (engine-ceiling e from nil)
+                         (if (and now (equalp now k))
+                             (let ((answer (funcall visit k old)))
+                               (when writable
+                                 (case answer
+                                   ((nil :nop))
+                                   (:remove (engine-delete e k))
+                                   (t (engine-put e k (to-octets answer)))))
+                               (values t k old))
+                             (values nil now nil)))))
+                (let ((k (and (= (%tc-clears c) (%db-clears db))
+                              (engine-ceiling e from nil))))
+                  (loop
+                    (setf (%tc-key c) k)
+                    (unless k
+                      (return (%fail db :no-record)))
+                    (multiple-value-bind (done next old)
+                        (let ((s (%stripe db (%key-digest db k))))
+                          (if writable
+                              (with-write-lock (s) (edit k))
+                              (with-read-lock (s) (edit k))))
+                      (when done
+                        (return (values k old)))
+                      (setf k next)))))))))))
 
 (defmethod cursor-accept (cursor visitor &key (writable t) step
                                               (as :octets))

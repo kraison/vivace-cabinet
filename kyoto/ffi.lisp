@@ -15,6 +15,10 @@
   (key (:struct kcstr))
   (value (:struct kcstr)))
 
+;; DB-SET-BULK fills an array of KCREC as the array of their KCSTRs.
+(assert (= (cffi:foreign-type-size '(:struct kcrec))
+           (* 2 (cffi:foreign-type-size '(:struct kcstr)))))
+
 (cffi:defcfun ("kcdbget" %kcdbget) :pointer
   (db :pointer) (kbuf :pointer) (ksiz :size) (sp :pointer))
 
@@ -123,6 +127,7 @@ octets holding a zero byte signal INVALID-ARGUMENT."
          (setf (cffi:mem-aref ,ptr :uint8 ,n) 0)
          ,@body))))
 
-(defun %c-string-octets (ptr)
-  "The zero-terminated bytes at PTR as octets."
-  (%copy-in ptr (cffi:foreign-funcall "strlen" :pointer ptr :size)))
+(defun %take-c-string (ptr)
+  "The zero-terminated bytes at PTR as octets, PTR then freed."
+  (prog1 (%copy-in ptr (cffi:foreign-funcall "strlen" :pointer ptr :size))
+    (kyoto-cabinet-ffi:kcfree ptr)))

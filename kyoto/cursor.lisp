@@ -8,20 +8,26 @@
    (db :initarg :db :reader %kc-db)))
 
 (defmethod db-cursor ((db kyoto-db))
-  (let ((c (make-instance 'kyoto-cursor
-                          :ptr (kyoto-cabinet-ffi:kcdbcursor (%ptr db))
-                          :db db)))
-    (bt:with-lock-held ((%kdb-lock db))
-      (push c (%kdb-cursors db)))
-    c))
+  ;; Made under the lock, so a CLOSE-DB racing it cannot miss it (#9).
+  (bt:with-lock-held ((%kdb-lock db))
+    (let ((c (make-instance 'kyoto-cursor
+                            :ptr (kyoto-cabinet-ffi:kcdbcursor (%ptr db))
+                            :db db)))
+      (push c (%kdb-cursors db))
+      c)))
+
+(defun %delete-cursor (c)
+  "Delete C's Kyoto cursor, if it is live.  The caller holds its
+database's lock."
+  (when (%kc-ptr c)
+    (kyoto-cabinet-ffi:kccurdel (%kc-ptr c))
+    (setf (%kc-ptr c) nil)))
 
 (defmethod %release-cursor ((c kyoto-cursor))
   (let ((db (%kc-db c)))
     (bt:with-lock-held ((%kdb-lock db))
-      (when (%kc-ptr c)
-        (kyoto-cabinet-ffi:kccurdel (%kc-ptr c))
-        (setf (%kc-ptr c) nil)
-        (setf (%kdb-cursors db) (delete c (%kdb-cursors db)))))))
+      (%delete-cursor c)
+      (setf (%kdb-cursors db) (delete c (%kdb-cursors db))))))
 
 (defmethod %cursor-db ((c kyoto-cursor))
   (%kc-db c))

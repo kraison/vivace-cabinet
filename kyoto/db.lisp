@@ -49,10 +49,15 @@ tuning parameters, e.g. (:bnum 2000000).  Returns a KYOTO-DB."
   (kyoto-error-code (kyoto-cabinet-ffi:kcdbecode (%ptr db))))
 
 (defmethod close-db ((db kyoto-db))
-  (let ((ptr (%kdb-ptr db)))
+  ;; Kyoto frees the database here: other threads must be done with it,
+  ;; as with Kyoto's own kcdbdel.  Its cursors go under the lock, which
+  ;; DB-CURSOR holds while it makes one (#9).
+  (let ((ptr (bt:with-lock-held ((%kdb-lock db))
+               (prog1 (%kdb-ptr db)
+                 (mapc #'%delete-cursor (%kdb-cursors db))
+                 (setf (%kdb-cursors db) '()
+                       (%kdb-ptr db) nil)))))
     (when ptr
-      (mapc #'%release-cursor (copy-list (%kdb-cursors db)))
-      (setf (%kdb-ptr db) nil)
       (prog1 (kyoto-cabinet-ffi:kcdbclose ptr)
         (kyoto-cabinet-ffi:kcdbdel ptr)))))
 
@@ -166,34 +171,37 @@ the value AS, or NIL."
   (cffi:foreign-free (cffi:foreign-slot-value str '(:struct kcstr) 'buf)))
 
 (defmacro %with-kcstrs ((ptr list) &body body)
-  "Run BODY with PTR an array of KCSTR holding copies of LIST's octets."
-  (let ((n (gensym "N")) (i (gensym "I")) (x (gensym "X")))
-    `(let ((,n (length ,list)))
+  "Run BODY with PTR an array of KCSTR holding copies of LIST's octets.
+The copies are freed after BODY, or, when filling signals, those made
+so far (#9)."
+  (let ((n (gensym "N")) (i (gensym "I")) (x (gensym "X"))
+        (filled (gensym "FILLED")))
+    `(let ((,n (length ,list))
+           (,filled 0))
        (cffi:with-foreign-object (,ptr '(:struct kcstr) (max 1 ,n))
-         (loop for ,x in ,list for ,i from 0
-               do (%fill-kcstr (cffi:mem-aptr ,ptr '(:struct kcstr) ,i) ,x))
-         (unwind-protect (progn ,@body)
-           (dotimes (,i ,n)
+         (unwind-protect
+              (progn
+                (loop for ,x in ,list for ,i from 0
+                      do (%fill-kcstr (cffi:mem-aptr ,ptr '(:struct kcstr) ,i)
+                                      ,x)
+                         (setf ,filled (1+ ,i)))
+                ,@body)
+           (dotimes (,i ,filled)
              (%free-kcstr (cffi:mem-aptr ,ptr '(:struct kcstr) ,i))))))))
 
 (defun %bulk-count (n)
   (and (>= n 0) n))
 
 (defmethod db-set-bulk ((db kyoto-db) records &key (atomic t))
-  (let ((n (length records)))
-    (cffi:with-foreign-object (recs '(:struct kcrec) (max 1 n))
-      (flet ((field (i name)
-               (cffi:foreign-slot-pointer
-                (cffi:mem-aptr recs '(:struct kcrec) i) '(:struct kcrec)
-                name)))
-        (loop for (key . value) in records for i from 0
-              do (%fill-kcstr (field i 'key) (to-octets key))
-                 (%fill-kcstr (field i 'value) (to-octets value)))
-        (unwind-protect
-             (%bulk-count (%kcdbsetbulk (%ptr db) recs n (if atomic 1 0)))
-          (dotimes (i n)
-            (%free-kcstr (field i 'key))
-            (%free-kcstr (field i 'value))))))))
+  ;; A KCREC is a key KCSTR then a value KCSTR (ffi.lisp checks), so the
+  ;; records' array is their strings' array.  Octets first: a bad record
+  ;; signals before anything is allocated.
+  (let ((strs (loop for (key . value) in records
+                    collect (to-octets key)
+                    collect (to-octets value))))
+    (%with-kcstrs (recs strs)
+      (%bulk-count (%kcdbsetbulk (%ptr db) recs (length records)
+                                 (if atomic 1 0))))))
 
 (defmethod db-remove-bulk ((db kyoto-db) keys &key (atomic t))
   (let ((ks (mapcar #'to-octets keys)))
@@ -209,34 +217,40 @@ the value AS, or NIL."
         (let ((n (%kcdbgetbulk (%ptr db) arr (length ks) recs
                                (if atomic 1 0))))
           (and (>= n 0)
-               (loop for i below n
-                     collect (flet ((take (name)
-                                      (let ((s (cffi:foreign-slot-pointer
-                                                (cffi:mem-aptr
-                                                 recs '(:struct kcrec) i)
-                                                '(:struct kcrec) name)))
-                                        (from-octets
-                                         (%take (cffi:foreign-slot-value
-                                                 s '(:struct kcstr) 'buf)
-                                                (cffi:foreign-slot-value
-                                                 s '(:struct kcstr) 'size))
-                                         as))))
-                               (cons (take 'key) (take 'value))))))))))
+               ;; Every record is taken, and so freed, before any is
+               ;; converted: :AS :STRING may signal (#9).
+               (flet ((take (i name)
+                        (let ((s (cffi:foreign-slot-pointer
+                                  (cffi:mem-aptr recs '(:struct kcrec) i)
+                                  '(:struct kcrec) name)))
+                          (%take (cffi:foreign-slot-value
+                                  s '(:struct kcstr) 'buf)
+                                 (cffi:foreign-slot-value
+                                  s '(:struct kcstr) 'size)))))
+                 (let ((pairs (loop for i below n
+                                    collect (cons (take i 'key)
+                                                  (take i 'value)))))
+                   (loop for (k . v) in pairs
+                         collect (cons (from-octets k as)
+                                       (from-octets v as)))))))))))
 
 ;;; Matching: Kyoto returns keys as C strings in an array of MAX slots
 
 (defun %matches (db max as fn)
-  "Call FN with an array of MAX (or every record's) slots and that size;
-the keys it fills, AS."
+  "Call FN with an array of slots for the keys, as many as there are
+records or MAX if fewer (#9), and that number; the keys it fills, AS."
   (check-as as)
-  (let ((slots (or max (db-count db))))
+  (%check-max max)
+  (let ((slots (if max (min max (db-count db)) (db-count db))))
     (cffi:with-foreign-object (strary :pointer (max 1 slots))
       (let ((n (funcall fn strary slots)))
         (and (>= n 0)
-             (loop for i below n
-                   collect (let ((p (cffi:mem-aref strary :pointer i)))
-                             (prog1 (from-octets (%c-string-octets p) as)
-                               (kyoto-cabinet-ffi:kcfree p)))))))))
+             ;; Every key is taken, and so freed, before any is
+             ;; converted: :AS :STRING may signal (#9).
+             (let ((keys (loop for i below n
+                               collect (%take-c-string
+                                        (cffi:mem-aref strary :pointer i)))))
+               (mapcar (lambda (k) (from-octets k as)) keys)))))))
 
 (defmethod db-match-prefix ((db kyoto-db) prefix &key max (as :octets))
   (with-c-string (p (to-octets prefix))
@@ -250,7 +264,11 @@ the keys it fills, AS."
 
 (defmethod db-match-similar ((db kyoto-db) origin range
                              &key utf max (as :octets))
+  (unless (typep range '(integer 0))
+    (%signal 'invalid-argument "RANGE must be a natural number: ~s" range))
   (with-c-string (p (to-octets origin))
+    ;; Kyoto's range is 32 bits; no key is further off than that.
     (%matches db max as (lambda (arr slots)
-                          (%kcdbmatchsimilar (%ptr db) p range
+                          (%kcdbmatchsimilar (%ptr db) p
+                                             (min range #xFFFFFFFF)
                                              (if utf 1 0) arr slots)))))

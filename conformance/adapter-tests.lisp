@@ -51,3 +51,86 @@ signals INVALID-ARGUMENT rather than matching on the part before it."
       (fiveam:signals invalid-argument (db-match-prefix db p))
       (fiveam:signals invalid-argument (db-match-regex db p))
       (fiveam:signals invalid-argument (db-match-similar db p 1)))))
+
+(fiveam:test adapter-makes-cursors-under-the-lock
+  "DB-CURSOR asks Kyoto for its cursor holding the database's cursor
+lock, under which CLOSE-DB deletes the cursors, so a close cannot miss
+one (#9)."
+  (with-kyoto (db "l.kch")
+    (let ((lock (vivace-cabinet-kyoto::%kdb-lock db))
+          (held :not-asked))
+      (with-encapsulated ((kyoto-cabinet-ffi:kcdbcursor (f ptr)
+                            (setf held (eq (sb-thread:mutex-owner lock)
+                                           sb-thread:*current-thread*))
+                            (funcall f ptr)))
+        (with-cursor (c db)
+          (fiveam:is (eq t held))
+          (fiveam:is (equal (list c)
+                            (vivace-cabinet-kyoto::%kdb-cursors db))))))))
+
+(fiveam:test adapter-frees-buffers-when-filling-signals
+  "A bulk call frees the foreign copies it made when making a later one
+signals (#9): here the third fails.  A bad record signals before any is
+made."
+  (with-kyoto (db "f.kch")
+    (let ((fills 0)
+          (frees 0))
+      (with-encapsulated ((vivace-cabinet-kyoto::%fill-kcstr (f &rest args)
+                            (when (= (incf fills) 3)
+                              (error "no memory"))
+                            (apply f args))
+                          (vivace-cabinet-kyoto::%free-kcstr (f &rest args)
+                            (incf frees)
+                            (apply f args)))
+        (fiveam:signals error (db-remove-bulk db '("a" "b" "c" "d")))
+        (fiveam:is (= 3 fills))
+        (fiveam:is (= 2 frees))
+        (setf fills 0 frees 0)
+        (fiveam:signals error (db-set-bulk db '(("a" . "1") ("b" . "2")
+                                                ("c" . "3"))))
+        (fiveam:is (= 3 fills))
+        (fiveam:is (= 2 frees))
+        (setf fills 0 frees 0)
+        (fiveam:signals invalid-argument
+          (db-set-bulk db '(("a" . "1") (42 . "2"))))
+        (fiveam:is (= 0 fills frees))))))
+
+(fiveam:test adapter-frees-kyotos-buffers-when-reading-signals
+  "What Kyoto returns is freed even when reading it :AS :STRING signals
+on bytes that are not UTF-8 (#9): every key and value of a bulk get,
+every key of a match."
+  (with-kyoto (db "u.kct")
+    (let ((bad (coerce #(255 254) '(simple-array (unsigned-byte 8) (*))))
+          (frees 0))
+      ;; Both values are bad: whichever record is read first signals.
+      (db-set db "a" bad)
+      (db-set db "b" bad)
+      (db-set db bad "v")
+      (with-encapsulated ((kyoto-cabinet-ffi:kcfree (f p)
+                            (incf frees)
+                            (funcall f p)))
+        (fiveam:signals invalid-argument
+          (db-get-bulk db (list "a" "b" bad) :as :string))
+        (fiveam:is (= 6 frees))
+        (setf frees 0)
+        (fiveam:signals invalid-argument (db-match-prefix db "" :as :string))
+        (fiveam:is (= 3 frees))))))
+
+(fiveam:test adapter-matches-check-their-arguments
+  "A RANGE or :MAX that is not a natural number signals INVALID-ARGUMENT,
+as vivace-cabinet's matches do, not TYPE-ERROR from the C types; slots
+are allocated for the records there are, not for a huge :MAX; a RANGE
+beyond Kyoto's 32 bits still matches every key (#9)."
+  (with-kyoto (db "m.kct")
+    (dolist (k '("a" "ab" "b"))
+      (db-set db k "v"))
+    (fiveam:signals invalid-argument (db-match-similar db "a" -1))
+    (fiveam:signals invalid-argument (db-match-prefix db "a" :max -1))
+    (fiveam:signals invalid-argument (db-match-regex db "a" :max -1))
+    (fiveam:signals invalid-argument (db-match-similar db "a" 1 :max -1))
+    (fiveam:is (null (db-match-prefix db "a" :max 0)))
+    (fiveam:is (equal '("a" "ab")
+                      (db-match-prefix db "a" :max (expt 2 62) :as :string)))
+    (fiveam:is (equal '("a" "ab" "b")
+                      (sort (db-match-similar db "a" (expt 2 40) :as :string)
+                            #'string<)))))

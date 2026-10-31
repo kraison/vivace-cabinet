@@ -14,54 +14,67 @@
 (defmethod db-cursor ((db tree-db))
   (make-instance 'tree-cursor :db db))
 
-(defun %tc-find (c fn key strict)
-  "(FN engine KEY STRICT) in C's database: (values key value), or NIL."
+(defun %tc-search (c fn)
+  "Call FN on C's database's engine, holding the database shared: FN's
+(values key value), then the clear count read under the same hold (#9).
+A count the cursor's differs from means a clear came between."
   (let ((db (%tc-db c)))
     (with-read-lock ((%db-lock db))
       (%check-open db)
-      (funcall fn (tree-db-engine db) key strict))))
+      (multiple-value-bind (k v) (funcall fn (tree-db-engine db))
+        (values k v (%db-clears db))))))
 
-(defun %tc-place (c key backward)
-  "Put C at KEY, NIL for nowhere; T, or NIL with :NO-RECORD."
+(defun %tc-place (c key backward clears)
+  "Put C at KEY, NIL for nowhere, as of the clear count CLEARS; T, or
+NIL with :NO-RECORD."
   (setf (%tc-key c) key
         (%tc-backward c) backward
-        (%tc-clears c) (%db-clears (%tc-db c)))
+        (%tc-clears c) clears)
   (or (and key t)
       (%fail (%tc-db c) :no-record)))
 
+(defun %tc-jump (c fn key backward)
+  "Put C at the record (FN engine KEY NIL) finds."
+  (multiple-value-bind (k v clears)
+      (%tc-search c (lambda (e) (funcall fn e key nil)))
+    (declare (ignore v))
+    (%tc-place c k backward clears)))
+
+(defun %tc-move (c fn backward)
+  "Put C at the record (FN engine) finds from C's key: nowhere when C
+is nowhere, or when the database was cleared since C was placed."
+  (if (%tc-key c)
+      (multiple-value-bind (k v clears) (%tc-search c fn)
+        (declare (ignore v))
+        (%tc-place c (and (= clears (%tc-clears c)) k) backward clears))
+      (%fail (%tc-db c) :no-record)))
+
 (defmethod %cursor-current ((c tree-cursor))
-  (when (/= (%tc-clears c) (%db-clears (%tc-db c)))
-    (setf (%tc-key c) nil))
   (when (%tc-key c)
-    (multiple-value-bind (k v) (%tc-find c #'engine-ceiling (%tc-key c) nil)
-      (setf (%tc-key c) k)
-      (and k (values k v)))))
+    (multiple-value-bind (k v clears)
+        (%tc-search c (lambda (e) (engine-ceiling e (%tc-key c) nil)))
+      (setf (%tc-key c) (and (= clears (%tc-clears c)) k))
+      (and (%tc-key c) (values k v)))))
 
 (defmethod %cursor-pass ((c tree-cursor) key)
-  (%tc-place c (%tc-find c (if (%tc-backward c)
-                               #'engine-floor
-                               #'engine-ceiling)
-                         key t)
-             (%tc-backward c)))
+  (let ((fn (if (%tc-backward c) #'engine-floor #'engine-ceiling)))
+    (%tc-move c (lambda (e) (funcall fn e key t)) (%tc-backward c))))
 
 (defmethod cursor-jump ((c tree-cursor) &optional key)
-  (%tc-place c (%tc-find c #'engine-ceiling (and key (to-octets key)) nil)
-             nil))
+  (%tc-jump c #'engine-ceiling (and key (to-octets key)) nil))
 
 (defmethod cursor-jump-back ((c tree-cursor) &optional key)
-  (%tc-place c (%tc-find c #'engine-floor (and key (to-octets key)) nil)
-             t))
+  (%tc-jump c #'engine-floor (and key (to-octets key)) t))
 
 (defmethod cursor-step ((c tree-cursor))
-  (let ((k (%cursor-current c)))
-    (if k
-        (%tc-place c (%tc-find c #'engine-ceiling k t) nil)
-        (%fail (%tc-db c) :no-record))))
+  ;; Past the record a read would land on, found under the same hold.
+  (%tc-move c (lambda (e)
+                (let ((k (engine-ceiling e (%tc-key c) nil)))
+                  (and k (engine-ceiling e k t))))
+            nil))
 
 (defmethod cursor-step-back ((c tree-cursor))
-  (if (and (%tc-key c) (= (%tc-clears c) (%db-clears (%tc-db c))))
-      (%tc-place c (%tc-find c #'engine-floor (%tc-key c) t) t)
-      (%fail (%tc-db c) :no-record)))
+  (%tc-move c (lambda (e) (engine-floor e (%tc-key c) t)) t))
 
 (defmethod cursor-get ((c tree-cursor) &key (as :octets) step)
   (check-as as)

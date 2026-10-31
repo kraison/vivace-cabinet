@@ -78,3 +78,16 @@ INVALID-ARGUMENT, whichever call asks."
     (signals invalid-argument (db-match-regex db "a$" :as :string))
     (signals invalid-argument
       (db-match-similar db "a" 2 :utf t :as :string))))
+
+(def-db-test match-max-is-nil-or-a-natural-number
+  "Every match signals INVALID-ARGUMENT for a :MAX that is not NIL or a
+natural number (#9), and finds nothing for a :MAX of 0."
+  (with-temp-db (db)
+    (db-set db "apple" "v")
+    (signals invalid-argument (db-match-prefix db "a" :max -1))
+    (signals invalid-argument (db-match-regex db "a" :max -1))
+    (signals invalid-argument (db-match-similar db "apple" 1 :max -1))
+    (signals invalid-argument (db-match-prefix db "a" :max 1.5))
+    (is (null (db-match-similar db "apple" 1 :max 0)))
+    (is (equal '("apple") (db-match-similar db "apple" 1 :max 1
+                                            :as :string)))))

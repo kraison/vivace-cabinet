@@ -153,9 +153,9 @@ cursor's record, and with `:step t` moves on.
 `db-match-prefix`, `db-match-regex` (CL-PPCRE syntax, matched against
 keys read as UTF-8) and `db-match-similar` (Levenshtein distance in
 bytes, or in characters with `:utf t`; nearest first) return lists of
-keys, at most `:max` of them. On a TreeDB in byte order,
-`db-match-prefix` reads only the matching keys and returns them in
-order; every other match reads every key.
+keys, at most `:max` of them (NIL, or a natural number). On a TreeDB in
+byte order, `db-match-prefix` reads only the matching keys and returns
+them in order; every other match reads every key.
 
 `db-status` returns a plist describing the database. `db-occupy` calls a
 function with the database's path, record count and size while holding
@@ -194,7 +194,10 @@ increments, compare-and-swap, bulk operations, matching, `db-count`,
 `db-size`, `db-clear` and cursors, with Kyoto's reasons from `db-error`.
 Kyoto's match calls take and return C strings: a pattern holding a zero
 byte signals `invalid-argument`, and a stored key holding one comes back
-cut off at it. The conformance check and the benchmark use it.
+cut off at it. `close-db` frees Kyoto's database, as `kcdbdel` does:
+call it only when no other thread is using the database, as the
+benchmark does by joining its threads first. The conformance check and
+the benchmark use it.
 
 ## Benchmark
 
