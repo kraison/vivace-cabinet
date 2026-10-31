@@ -169,3 +169,48 @@ end; it signals INVALID-ARGUMENT."
   (with-temp-db (db)
     (signals invalid-argument
       (db-copy db (merge-pathnames "bak/" (db-path db))))))
+
+(def-db-test closed-databases-refuse-calls-with-no-parts
+  "DB-MERGE with no sources and DB-LOAD-SNAPSHOT of an empty snapshot
+signal INVALID-ARGUMENT on a closed database, as every call does (#8)."
+  (with-temp-directory (dir)
+    (let ((empty (merge-pathnames "empty.snap" dir))
+          (db (open-test-db (merge-pathnames "c.vc/" dir))))
+      (db-dump-snapshot db empty)
+      (close-db db)
+      (signals invalid-argument (db-merge db '()))
+      (signals invalid-argument (db-load-snapshot db empty)))))
+
+(def-db-test readers-and-whole-database-calls
+  "A reader refuses a writable DB-ITERATE, DB-MERGE and DB-LOAD-SNAPSHOT
+with :NO-PERMISSION, iterates read-only, and copies into a database
+that opens on its own."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "r.vc/" dir))
+          (snap (merge-pathnames "r.snap" dir))
+          (copy (merge-pathnames "c.vc/" dir)))
+      (with-test-db (db path)
+        (dotimes (i 50)
+          (db-set db (keyed i) "v"))
+        (db-dump-snapshot db snap))
+      (with-test-db (src (merge-pathnames "s.vc/" dir))
+        (db-set src "s" "v")
+        (with-test-db (db path :mode '(:reader))
+          (is (null (db-iterate db (answer :remove))))
+          (is (eq :no-permission (db-error db)))
+          (is (null (db-merge db (list src))))
+          (is (eq :no-permission (db-error db)))
+          (is (null (db-load-snapshot db snap)))
+          (is (eq :no-permission (db-error db)))
+          (let ((n 0))
+            (is-true (db-iterate db (lambda (k v)
+                                      (declare (ignore k v))
+                                      (incf n)
+                                      :nop)
+                                 :writable nil))
+            (is (= 50 n)))
+          (is-true (db-copy db copy))
+          (is (= 50 (db-count db)))))
+      (with-db (c copy)
+        (is (= 50 (db-count c)))
+        (is (equal "v" (db-get c (keyed 3) :as :string)))))))

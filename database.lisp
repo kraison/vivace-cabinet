@@ -303,6 +303,12 @@ or :WRITE)."
               (:read `(with-shared-lock (,s) ,@body))
               (:write `(with-exclusive-lock (,s) ,@body))))))))
 
+(defun %ensure-open (db)
+  "Signal INVALID-ARGUMENT unless DB is open: for a call that takes DB's
+lock only in its parts, and so would otherwise do nothing and return T
+on a closed database when it has no parts (#8)."
+  (%holding (db :shared) t))
+
 (defun %fail (db code)
   "Record CODE as the calling thread's last failure on DB; return NIL."
   (with-lock-held ((%db-errors-lock db))

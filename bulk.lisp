@@ -23,10 +23,13 @@ table of each key's last value."
                                (declare (ignore v))
                                (gethash k table)))
              (length keys))
-        (loop for k in keys
-              unless (db-set db k (gethash k table))
-                return nil
-              count t))))
+        ;; A reader fails even with no records, as the atomic call does.
+        (if (%db-writable-p db)
+            (loop for k in keys
+                  unless (db-set db k (gethash k table))
+                    return nil
+                  count t)
+            (%fail db :no-permission)))))
 
 (defun %unique-octets (keys)
   "KEYS as octets, each once, in the order first given."

@@ -102,6 +102,7 @@ linear hash's index files are mostly holes."
              "MODE must be :SET, :ADD, :REPLACE or :APPEND: ~s" mode))
   (when (member db sources)
     (%signal 'invalid-argument "a database cannot merge into itself"))
+  (%ensure-open db)
   (if (not (%db-writable-p db))
       (%fail db :no-permission)
       (dolist (src sources t)

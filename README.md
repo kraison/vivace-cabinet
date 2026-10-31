@@ -156,7 +156,8 @@ takes its last value) and returns how many it stored; `db-get-bulk`
 returns an alist of the keys it finds; `db-remove-bulk` returns how many
 it removed. Each holds its keys for the whole call unless given
 `:atomic nil`; neither way is all-or-nothing, so a key too long for a B+
-tree partway leaves the earlier keys stored.
+tree partway leaves the earlier keys stored. On a reader, both writes
+fail with `:no-permission`, even with no records.
 
 `db-iterate` visits every record while holding the whole database:
 other threads wait until it ends, as in Kyoto Cabinet, and get their

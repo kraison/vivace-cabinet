@@ -74,6 +74,7 @@ fills a missing type in TO from FROM."
     t))
 
 (defmethod db-load-snapshot ((db database) path)
+  (%ensure-open db)
   (if (not (%db-writable-p db))
       (%fail db :no-permission)
       (%with-system-errors

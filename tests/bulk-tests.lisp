@@ -31,3 +31,18 @@ given twice takes its last value."
           (is (eq :no-permission (db-error db)))
           (is (equal '(("k" . "v"))
                      (db-get-bulk db '("k") :atomic atomic :as :string))))))))
+
+(def-db-test readers-refuse-empty-bulk-writes
+  "On a reader, DB-SET-BULK and DB-REMOVE-BULK fail with :NO-PERMISSION
+even with no records, atomic or not (#8)."
+  (with-temp-directory (dir)
+    (let ((path (merge-pathnames "b.vc/" dir)))
+      (with-test-db (db path)
+        (db-set db "k" "v"))
+      (with-test-db (db path :mode '(:reader))
+        (dolist (atomic '(t nil))
+          (is (null (db-set-bulk db '() :atomic atomic)))
+          (is (eq :no-permission (db-error db)))
+          (is (null (db-remove-bulk db '() :atomic atomic)))
+          (is (eq :no-permission (db-error db)))
+          (is (null (db-get-bulk db '() :atomic atomic))))))))
