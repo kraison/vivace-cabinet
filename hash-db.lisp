@@ -238,8 +238,10 @@ chain (NIL at the head); NIL if KEY is absent."
               (%fail db :no-record)))))))
 
 (defmethod %size ((db hash-db))
-  "Bytes in use: the heap's extent and the index's buckets and overflow.
-File sizes would overstate: the index files are sparse."
+  "Bytes used so far: the heap's extent and the index's buckets and
+overflow.  A high-water mark: removing records frees space for reuse
+without lowering it (#6).  File sizes would overstate: the index files
+are sparse."
   (let ((index (hash-db-index db)))
     (+ (read-memory-pointer (%db-heap db))
        (* (bucket-count index) (%lhash-bucket-bytes index))

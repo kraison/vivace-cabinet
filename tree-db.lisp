@@ -178,7 +178,7 @@ OPEN-HASH-DB."
           (%fail db :no-record)))))
 
 (defmethod %size ((db tree-db))
-  "Bytes the heap has used."
+  "Bytes the heap has used so far; a high-water mark, as for HashDB."
   (read-memory-pointer (%db-heap db)))
 
 ;;; Visiting

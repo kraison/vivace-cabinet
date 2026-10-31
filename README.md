@@ -66,8 +66,11 @@ compare-and-swap that finds another value) returns NIL, and
 subclasses: `open-error`, `invalid-argument`, `key-too-long`,
 `reservation-exhausted`, `not-implemented` and its subclass
 `transactions-not-implemented`.
-`db-check` returns the value's size; `db-size` returns the bytes in use,
-not file sizes (the index files are sparse).
+`db-check` returns the value's size. `db-size` returns the bytes the
+database has used so far: the heap's extent and, on a HashDB, the
+index's buckets and overflow. It is a high-water mark, as Kyoto's file
+size is: removing records frees their space for reuse without lowering
+it. It is not the files' size (the index files are sparse).
 
 ## Cursors
 
